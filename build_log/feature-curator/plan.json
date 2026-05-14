@@ -1,0 +1,49 @@
+{
+  "selected_approach": {
+    "name": "Local File-based JSONL Archive (로컬 파일 기반)",
+    "reason": "사용자 자동 승인됨. MVP 단계에서 DB 인프라 세팅 오버헤드를 제거하면서도, Layer 3(Meta-harness)가 임의로 수정할 수 없도록 파일시스템 접근 제어를 통해 IMMUTABLE 권한을 강제하기 가장 유리함."
+  },
+  "change_scope": {
+    "files_to_create": [
+      "harness/curator/models.py",
+      "harness/curator/manager.py",
+      "harness/curator/__init__.py"
+    ],
+    "files_to_modify": [],
+    "untouched_areas": [
+      "production/*",
+      "core/*",
+      "scripts/*",
+      "meta_harness_workspace/skill/*"
+    ]
+  },
+  "interfaces": {
+    "models.py": "class GoldenRecord(BaseModel):\n    patent_id: str\n    human_grade: str\n    human_reasoning: str\n    metadata: dict",
+    "manager.py": "def append_to_golden_set(record: GoldenRecord): ...  # JSONL 파일에 안전하게 한 줄 덧붙이기"
+  },
+  "change_atomicity": {
+    "description": "Atomic. 이 컴포넌트는 오직 '사람이 검토한 정답 데이터'를 받아 파일시스템(protected 영역)에 영구적으로 직렬화(Serialization) 기록하는 단일 역할만 수행합니다."
+  },
+  "implementation_order": [
+    "1. `models.py`에 GoldenRecord 스키마 정의",
+    "2. `manager.py`에 fcntl(또는 안전한 락) 기반의 JSONL Append 로직 작성",
+    "3. 테스트 스크립트로 `meta_harness_workspace/protected/golden_set/master.jsonl`에 더미 기록이 정상적으로 쌓이는지 검증"
+  ],
+  "predicted_behavior": {
+    "expected_input": "GoldenRecord(patent_id='mock_enzyme_001', human_grade='HIGH', human_reasoning='명백한 서열 상동성 침해', metadata={})",
+    "expected_output": "master.jsonl 파일 맨 끝줄에 \\n 과 함께 완전한 형태의 JSON 문자열이 한 줄 추가됨",
+    "failure_cases": "디스크 용량 초과 또는 권한 거부(Permission Error) 발생 시 기록을 포기하고 예외를 반환하여 데이터 오염 방지(Fail-closed)."
+  },
+  "validation_plan": {
+    "smoke_test": "두 개의 더미 레코드를 연속해서 append한 뒤, 파일을 라인 단위로 읽었을 때 파싱 에러 없이 정확히 2개의 객체로 복원되는지 확인."
+  },
+  "rollback_plan": {
+    "trigger": "JSONL 구조가 깨지거나(줄바꿈 문자 혼입 등) OS 락킹 문제로 데드락 발생 시",
+    "procedure": "이 커밋(Plan)을 즉각 Revert."
+  },
+  "risk_assessment": {
+    "rule_0_impact": "사람이 작성하는 사유(reasoning)에 PII가 우발적으로 포함되지 않도록 향후 주의 필요.",
+    "immutable_invasion": "★ 핵심 예외: Layer 2 Curator는 `/protected/golden_set`에 쓰기(Write)가 허용되는 유일한 에이전트임. Layer 3(Meta-harness)는 이 파일에 대해 철저한 Read-only 상태여야 함."
+  },
+  "human_review_required": "Layer 3 환경 컨테이너에서 해당 jsonl 파일을 Read-only로만 마운트하는 인프라 설정 계획이 리뷰되어야 함."
+}

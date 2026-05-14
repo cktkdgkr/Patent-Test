@@ -1,0 +1,2 @@
+1. A method for tracking user activity.
+2. The user has the SSN 800101-1234567.

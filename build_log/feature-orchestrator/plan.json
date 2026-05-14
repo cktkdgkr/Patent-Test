@@ -1,0 +1,50 @@
+{
+  "selected_approach": {
+    "name": "Asynchronous Pipeline (비동기 파이프라인)",
+    "reason": "사용자 자동 승인됨. 전체 모듈(Retriever, Parser, Analyzer)을 async/await 구조로 깔끔하게 연결하여 응답 시간을 단축하고 향후 확장에 대비함."
+  },
+  "change_scope": {
+    "files_to_create": [
+      "production/orchestrator/pipeline.py",
+      "production/orchestrator/__init__.py"
+    ],
+    "files_to_modify": [],
+    "untouched_areas": [
+      "production/parser/*",
+      "production/retriever/*",
+      "production/analyzer/*",
+      "core/*",
+      "harness/*",
+      "meta_harness_workspace/*"
+    ]
+  },
+  "interfaces": {
+    "pipeline.py": "async def run_screening_pipeline(patent_id: str, target_spec: dict) -> RiskReport: ...\n# 내부 동작: 1. retrieve_patent() -> 2. TreeBuilder.parse_claims() -> 3. LLMExtractor.extract_features() (gather 병렬) -> 4. RiskAnalyzer.analyze_risk() -> 최종 반환"
+  },
+  "change_atomicity": {
+    "description": "Atomic. 이 컴포넌트는 새로운 비즈니스 로직을 전혀 가지지 않으며 오직 각 모듈 간의 '데이터 파이프라인 흐름'과 '예외 로깅'만을 책임집니다."
+  },
+  "implementation_order": [
+    "1. `production/orchestrator` 디렉터리 생성 및 모듈 초기화",
+    "2. `pipeline.py`에 각 모듈을 순차 호출하는 `run_screening_pipeline` 코루틴 작성",
+    "3. LLM 비동기 추출(LLMExtractor) 병렬 처리 로직(asyncio.gather) 결합",
+    "4. 전체 통합 테스트 스크립트로 동작 검증"
+  ],
+  "predicted_behavior": {
+    "expected_input": "patent_id='mock_enzyme_001', target_spec={'identity': 95.0}",
+    "expected_output": "정상적인 RiskReport Pydantic 객체 (내부에서 Parser와 Analyzer가 모두 동작하여 결과 반환)",
+    "failure_cases": "Retriever가 PII를 발견하여 DataProtectionViolation을 던지면, 오케스트레이터가 이를 캐치하여 상위로 올리거나 로깅 후 파이프라인을 Fail-closed 종료."
+  },
+  "validation_plan": {
+    "integration_test": "진짜 더미 파일인 `mock_enzyme_001.txt`를 넣었을 때 에러 없이 RiskReport가 나오는지 통합 테스트 수행."
+  },
+  "rollback_plan": {
+    "trigger": "asyncio 루프 데드락 또는 모듈 간 타입 미스매치로 인한 Pydantic 에러 발생 시",
+    "procedure": "이 커밋을 Revert하고 동기식 코드로 다운그레이드."
+  },
+  "risk_assessment": {
+    "rule_0_impact": "Retriever의 예외를 무시하고 진행하지 않도록 예외 처리에 극히 주의.",
+    "immutable_invasion": "없음."
+  },
+  "human_review_required": "파이프라인의 에러 핸들링 정책(에러 발생 시 일부 반환 vs 전체 실패)에 대한 실무자 리뷰 필요."
+}

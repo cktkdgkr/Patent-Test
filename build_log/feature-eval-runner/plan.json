@@ -1,0 +1,49 @@
+{
+  "selected_approach": {
+    "name": "Custom Batch Evaluation Script (독자 배치 평가 스크립트)",
+    "reason": "사용자 자동 승인됨. Layer 3가 파싱하기 좋은 구조화된 JSON(EvalReport)을 반환하고, 특허 도메인에서 제일 중요한 'Critical Miss(치명적 누락)' 지표를 직접 제어/산출하기 위해 가장 직관적인 방식임."
+  },
+  "change_scope": {
+    "files_to_create": [
+      "harness/evaluator/models.py",
+      "harness/evaluator/runner.py",
+      "harness/evaluator/__init__.py"
+    ],
+    "files_to_modify": [],
+    "untouched_areas": [
+      "production/*",
+      "harness/curator/*",
+      "meta_harness_workspace/*"
+    ]
+  },
+  "interfaces": {
+    "models.py": "class EvalMetrics(BaseModel):\n  total_cases: int\n  accuracy: float\n  critical_misses: int\nclass EvalReport(BaseModel):\n  metrics: EvalMetrics\n  failed_cases: List[dict]",
+    "runner.py": "async def evaluate_golden_set(target_spec: dict) -> EvalReport: ... # master.jsonl을 읽어와서 Orchestrator를 돌리고 채점함"
+  },
+  "change_atomicity": {
+    "description": "Atomic. 평가 로직 자체만 담고 있으며, Layer 1(Orchestrator)을 호출하여 결과를 비교할 뿐 내부 상태를 변경하지 않는 순수 검증(Validation) 기능임."
+  },
+  "implementation_order": [
+    "1. `harness/evaluator/models.py`에 평가 리포트용 Pydantic 스키마 정의",
+    "2. `runner.py`에서 `master.jsonl`을 라인별로 읽어오는 로직 작성",
+    "3. 각 라인별로 `run_screening_pipeline` 비동기 호출 및 결과 수집",
+    "4. 정답(human_grade)과 기계(machine_grade)를 비교하여 Metrics 계산"
+  ],
+  "predicted_behavior": {
+    "expected_input": "미리 쌓여 있는 `master.jsonl` 파일 내의 정답 기록들",
+    "expected_output": "EvalReport 객체 (예: accuracy=1.0, critical_misses=0)",
+    "failure_cases": "골든셋 파일이 없을 경우 FileNotFoundError, Layer 1 파이프라인에서 에러 발생 시 해당 케이스는 error_cases로 분류하여 뻗지 않고 계속 진행(Fault tolerance)."
+  },
+  "validation_plan": {
+    "smoke_test": "기존에 쌓아둔 2개의 더미 레코드(mock_enzyme_001, 002)에 대해 평가를 돌렸을 때 점수가 정상적으로 산출되는지 통합 검증."
+  },
+  "rollback_plan": {
+    "trigger": "Layer 1 예외 발생 시 전체 평가가 중단(Crash)되거나 메모리 누수가 발생할 경우",
+    "procedure": "이 커밋을 Revert하고 PyTest 방식으로 선회 검토."
+  },
+  "risk_assessment": {
+    "rule_0_impact": "평가기 또한 Sanitizer를 거친 깨끗한 데이터를 다루므로 문제 없음.",
+    "immutable_invasion": "Curator가 만든 `/protected/golden_set/master.jsonl`을 철저히 Read-only로만 접근함."
+  },
+  "human_review_required": "채점 기준 (HIGH인데 SAFE라 하면 critical_miss)이 실무 요구사항에 부합하는지 리뷰 필요."
+}

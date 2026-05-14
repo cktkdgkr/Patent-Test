@@ -1,0 +1,45 @@
+{
+  "build_target": "Layer 2 Eval Runner: Curator가 적재한 골든셋(master.jsonl) 데이터를 기반으로 Layer 1(Orchestrator)을 배치 실행하여 기계의 판단과 사람의 정답을 비교 채점(Scoring)하는 모듈",
+  "requirements_unpacked": [
+    "Layer 1 Orchestrator 비동기 호출 및 결과 수집",
+    "사람의 라벨(human_grade)과 기계의 예측(grade) 비교 로직",
+    "특허 스크리닝 도메인 특화 메트릭 산출 (예: False Negative를 엄격하게 벌점 매기는 Critical Miss Rate 계산)",
+    "Layer 3(Meta-harness)가 텍스트 기반으로 쉽게 읽고 분석할 수 있는 JSON/Markdown 결과 리포트 출력"
+  ],
+  "design_approaches": [
+    {
+      "name": "PyTest-based Test Suite (PyTest 프레임워크 연동)",
+      "idea": "골든셋의 각 줄을 `pytest.mark.parametrize` 로 주입하여 유닛 테스트처럼 실행.",
+      "libraries_patterns": "pytest, pytest-asyncio",
+      "pros_cons": "장점: 기존 CI 툴(Jenkins, GitHub Actions)과 완벽 호환됨. 단점: 도메인 특화 지표(Recall vs Precision 가중치)를 커스텀하게 뽑아내거나 Layer 3에게 읽히기 위한 JSON 포맷팅이 오히려 더 번거로움.",
+      "coupling": "Layer 1 코드와 강한 테스트 결합."
+    },
+    {
+      "name": "Custom Batch Evaluation Script (독자 배치 평가 스크립트)",
+      "idea": "Python 스크립트에서 JSONL을 한 줄씩 읽어 Orchestrator를 호출하고, `Recall`, `Critical Miss Rate` 등의 수식을 직접 계산해 `eval_report.json`으로 저장.",
+      "libraries_patterns": "asyncio, json",
+      "pros_cons": "장점: 평가 지표(Metrics) 계산식을 비즈니스 로직에 맞춰 100% 커스텀할 수 있고, Layer 3가 읽기 가장 좋은 형태로 출력 가능함. MVP에 적합. 단점: PyTest가 기본 제공하는 이쁜 CLI 리포팅을 잃음.",
+      "coupling": "Orchestrator 인터페이스에만 의존하는 느슨한 결합."
+    },
+    {
+      "name": "MLOps Tracking Integration (MLflow 등 연동)",
+      "idea": "평가(Run)를 돌릴 때마다 MLflow 서버에 실험(Experiment)을 생성하고 지표를 로깅.",
+      "libraries_patterns": "mlflow",
+      "pros_cons": "장점: 시간에 따른 모델 성능 변화(Regression)를 대시보드로 추적 가능. 단점: 외부 서비스 연동이 필요하여 MVP 단계에서 불필요하게 무거움.",
+      "coupling": "외부 인프라 연동 필수."
+    }
+  ],
+  "non_obvious_option": {
+    "idea": "Layer 3 직접 평가 (Self-Evaluation by Meta-harness)",
+    "description": "별도의 채점 코드를 짜지 않고, Layer 3(Meta-harness) LLM 자체에게 '골든셋'과 'Layer 1 결과'를 통째로 넘겨주고 네가 스스로 프롬프트에 따라 채점하라고 지시함. 단점: 평가 과정 자체가 확률적(Stochastic)이 되어 평가 점수를 신뢰할 수 없는 모순(Evaluation Hallucination)이 발생함. 절대 금지."
+  },
+  "recommended_for_planning": [
+    "Custom Batch Evaluation Script (독자 배치 평가 스크립트)"
+  ],
+  "explicitly_rejected": [
+    "Layer 3 직접 평가 (평가 기준이 비결정론적이 되어 플랫폼 신뢰도 붕괴)"
+  ],
+  "open_questions_for_human": [
+    "이 플랫폼에서 가장 치명적인 오류(Critical Miss)는 무엇인가요? 통상적으로 사람이 '침해 위험(HIGH)'이라 했는데 기계가 '안전(SAFE)'하다고 오판하여 법적 리스크를 발생시키는 경우를 뜻합니다."
+  ]
+}

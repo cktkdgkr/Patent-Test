@@ -1,0 +1,46 @@
+{
+  "build_target": "Layer 1 Risk Analyzer: Parser에서 추출된 청구항 특징(ClaimFeatures)을 입력받아 자사 타겟 제품/효소 서열과의 침해 위험도(High/Medium/Low/Safe)와 회피 가능성 논리(Reasoning)를 평가하는 컴포넌트",
+  "requirements_unpacked": [
+    "추출된 % identity 수치와 자사 서열 일치율 비교",
+    "기능적 한정사(온도, pH 등)가 자사 공정에 포함되는지 평가",
+    "Chain of Thought(CoT) 방식의 판별 논리(Reasoning Text) 생성",
+    "최종 Risk Grade (High/Medium/Low/Safe) 반환",
+    "Layer 2 Reviewer가 평가할 수 있도록 결과의 투명한 기록"
+  ],
+  "design_approaches": [
+    {
+      "name": "Rule-based Thresholding (순수 규칙 기반)",
+      "idea": "if-else 문을 사용하여 % identity 수치가 타겟보다 낮으면 Safe, 높으면 High로 하드코딩함.",
+      "libraries_patterns": "순수 Python 제어문",
+      "pros_cons": "장점: 초고속, 예측 100% 가능. 단점: 특허의 모호한 기능적 한정사(Functional limitations)나 문맥을 무시하므로 False Negative(위험을 누락함)가 대폭 증가하여 치명적 누락(Critical Miss) 발생 위험 높음.",
+      "coupling": "단순 데이터 컨트랙트. 의존성 낮음."
+    },
+    {
+      "name": "One-pass LLM Reasoning (단일 LLM CoT 추론)",
+      "idea": "Parser의 출력 JSON과 자사 제품 스펙(텍스트)을 결합하여 강력한 단일 LLM(Gemini 1.5 Pro)에 넣고, 한 번에 CoT 방식의 추론(Reasoning)과 최종 위험도를 도출.",
+      "libraries_patterns": "LangChain, Structured Output, Chain of Thought Prompting",
+      "pros_cons": "장점: 문맥 파악 및 유연성 높음. MVP 단계에서 가장 범용적인 접근. 단점: 프롬프트에 따라 결과가 흔들릴 수 있으며 Calibration 오차가 발생할 수 있음.",
+      "coupling": "LLM API 의존성 존재."
+    },
+    {
+      "name": "Decomposed LLM Agents (분리형 분석 에이전트)",
+      "idea": "서열 비교 Agent, 기능적 한정사 비교 Agent, 예외 조항(Markush) 분석 Agent 세 개가 독립적으로 위험도를 평가한 뒤 Aggregator가 이를 취합.",
+      "libraries_patterns": "LangGraph 다중 분기 로직",
+      "pros_cons": "장점: 각 도메인 특화 정확도 극대화. 단점: 비용과 지연 시간 증가, 프롬프트 엔지니어링 관리 포인트 3배 증가.",
+      "coupling": "에이전트 간 내부 결합도 증가."
+    }
+  ],
+  "non_obvious_option": {
+    "idea": "Symbolic Logic Theorem Prover (기호 논리 증명기)",
+    "description": "추출된 청구항 데이터를 Prolog나 Z3 SMT Solver 같은 기호 논리(Symbolic Logic) 언어로 치환한 뒤, 자사 스펙이 해당 논리 공간에 '참(True)'으로 포함되는지 수학적으로 증명(Proving)하는 방식. 100% 논리적 무결성이 보장되지만, 특허의 자연어를 수학적 논리로 변환하는 컴파일러를 짜는 것이 불가능에 가까움."
+  },
+  "recommended_for_planning": [
+    "One-pass LLM Reasoning (단일 LLM CoT 추론)"
+  ],
+  "explicitly_rejected": [
+    "Rule-based Thresholding (Critical Miss 발생 확률이 높아 0순위 목표 위배)"
+  ],
+  "open_questions_for_human": [
+    "자사 타겟 제품 스펙 데이터(비교 대상)를 이 모듈에 어떻게 주입할 예정인가요? (예: 하드코딩 JSON, DB 조회, 사용자 입력)"
+  ]
+}

@@ -1,0 +1,2 @@
+1. A method for enzymatic conversion comprising reacting A to B.
+2. The method of claim 1, wherein the enzyme has at least 90% identity to SEQ ID NO:1.

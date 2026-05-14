@@ -1,0 +1,51 @@
+{
+  "selected_approach": {
+    "name": "One-pass LLM Reasoning (단일 LLM CoT 추론)",
+    "reason": "사용자 자동 승인됨. MVP 단계에서 다양한 자연어 변형에 유연하게 대응하면서도, Chain of Thought를 통해 Layer 2(Reviewer)가 논리 구조를 추적/평가하기 가장 좋은 형태임."
+  },
+  "change_scope": {
+    "files_to_create": [
+      "production/analyzer/evaluator.py",
+      "production/analyzer/models.py",
+      "production/analyzer/__init__.py"
+    ],
+    "files_to_modify": [],
+    "untouched_areas": [
+      "production/parser/*",
+      "production/retriever/*",
+      "core/sanitizer.py",
+      "harness/*",
+      "meta_harness_workspace/*"
+    ]
+  },
+  "interfaces": {
+    "models.py": "class RiskGrade(str, Enum):\n  HIGH = 'HIGH'\n  MEDIUM = 'MEDIUM'\n  LOW = 'LOW'\n  SAFE = 'SAFE'\n\nclass RiskReport(BaseModel):\n  reasoning: str\n  grade: RiskGrade",
+    "evaluator.py": "async def analyze_risk(features: List[ClaimFeatures], target_spec: dict) -> RiskReport: ...  # LLM 프롬프트 조립 및 호출"
+  },
+  "change_atomicity": {
+    "description": "Atomic. 파싱된 데이터(JSON)와 타겟 스펙(Dict)을 받아 위험도(JSON)를 반환하는 순수 순방향(Feed-forward) 추론 로직만 추가함."
+  },
+  "implementation_order": [
+    "1. `models.py`에 위험도 등급(Enum)과 리포트 스키마(Pydantic) 정의",
+    "2. `evaluator.py`에 CoT 프롬프트 템플릿 작성",
+    "3. 비동기 LLM 호출 함수 `analyze_risk` 작성",
+    "4. 더미 파라미터를 이용한 출력 포맷 검증(Lightweight Test)"
+  ],
+  "predicted_behavior": {
+    "expected_input": "features=[{'percent_identity': 90.0}], target_spec={'identity': 95.0}",
+    "expected_output": "RiskReport(reasoning='타겟 서열이 청구항 한계 90% 이상에 포함되므로 침해 위험이 높음.', grade='HIGH')",
+    "failure_cases": "LLM이 JSON 형식을 지키지 못하면 ValidationError 발생 후 재시도 또는 Fail-closed 처리."
+  },
+  "validation_plan": {
+    "unit_tests": "명백히 Safe한 스펙과 명백히 High인 스펙을 넣었을 때 LLM이 올바른 등급을 뱉는지 스모크 테스트 수행."
+  },
+  "rollback_plan": {
+    "trigger": "LLM이 환각(Hallucination)으로 인해 Pydantic 스키마를 연속적으로 깨뜨리거나, 명백한 룰 위반(10% < 90% 인데 High 반환)을 할 경우",
+    "procedure": "이 커밋을 Revert하고 Rule-based 하이브리드 방식으로 방향 전환."
+  },
+  "risk_assessment": {
+    "rule_0_impact": "영향 없음. 이미 Retriever가 Sanitizer를 통과시킨 데이터를 처리함.",
+    "immutable_invasion": "없음. Layer 3 코드를 건드리지 않음."
+  },
+  "human_review_required": "CoT 프롬프트 템플릿의 가이드라인이 도메인 관점에서 합리적인지 리뷰 필요."
+}

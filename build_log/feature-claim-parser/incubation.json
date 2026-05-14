@@ -1,0 +1,47 @@
+{
+  "build_target": "Layer 1 Claim Parser: 특허 원문에서 청구항을 분리하고, 효소 서열 % identity, 기능 한정사, Markush 구조 등 핵심 침해 판단 요소를 구조화(JSON)하여 Risk Analyzer로 전달하는 컴포넌트",
+  "requirements_unpacked": [
+    "원문 특허에서 청구항(Claims) 섹션만 정확히 식별",
+    "독립항과 종속항의 의존 관계(Tree) 파악",
+    "% identity (서열 상동성 범위) 추출",
+    "기능적 한정사(활성 온도, pH, 기질 특이성 등) 추출",
+    "0번 규정(Sanitizer)을 통과한 데이터만 처리",
+    "예외/실패 시 Fail-closed 로직 적용"
+  ],
+  "design_approaches": [
+    {
+      "name": "LLM Zero-shot Extraction (단일 거대 모델)",
+      "idea": "전체 청구항 텍스트를 컨텍스트 윈도우가 큰 단일 LLM에 한 번에 입력하고, 미리 정의된 JSON 스키마로 전체 의존 관계와 한정사를 한 번에 추출하도록 프롬프팅.",
+      "libraries_patterns": "LangChain, Structured Output (Pydantic), Gemini 1.5 Pro",
+      "pros_cons": "장점: 구현이 매우 빠르고 단순. 단점: 청구항이 수백 개일 경우 중간 청구항을 누락(Lost in the middle)하거나 의존 관계 환각(Hallucination) 발생 위험.",
+      "coupling": "단일 API 호출로 끝나므로 결합도 낮음. 단, 모델 성능에 완전히 종속됨."
+    },
+    {
+      "name": "Rule-based Tree Builder + LLM Local Parser (하이브리드)",
+      "idea": "1단계로 정규식과 구문 분석기를 이용해 독립/종속항의 의존 트리(Tree)를 결정론적으로 구축함. 2단계로 각 개별 청구항 단위로 소형 LLM을 병렬 호출하여 % identity와 기능 한정사만 추출.",
+      "libraries_patterns": "re, spaCy, Async LLM Calls, Pydantic, Gemini Flash",
+      "pros_cons": "장점: 의존 관계 환각을 원천 차단. 병렬 처리로 지연 시간 단축. 단점: 정규식으로 커버 안되는 특이 포맷 특허에서 트리 구축 실패 리스크.",
+      "coupling": "전처리 모듈과 LLM 추출 모듈이 분리되어 디버깅 용이. Risk Analyzer와 깔끔한 데이터 컨트랙트 가능."
+    },
+    {
+      "name": "Iterative Multi-Agent extraction (계층형 추출기)",
+      "idea": "Agent 1(구조 파악기)이 전체 청구항을 읽고 요약/분류함. Agent 2(상세 추출기)가 Agent 1의 지시를 받아 중요한 독립항부터 깊게 파고들어 데이터를 추출. 결과가 상충하면 Agent 3(검증기)가 교정.",
+      "libraries_patterns": "LangGraph 또는 AutoGen, Multi-agent collaboration",
+      "pros_cons": "장점: 복잡한 Markush 구조나 모호한 표현에서 정확도 극대화. 단점: API 호출 비용 3~5배 증가, 지연 시간 길어 실시간 스크리닝에 부적합할 수 있음.",
+      "coupling": "Agent 간 상태 공유(State graph)가 복잡해져 유지보수 난이도 상승."
+    }
+  ],
+  "non_obvious_option": {
+    "idea": "Deterministic Semantic Parser (LLM 배제, 순수 룰/NLP 모델 기반)",
+    "description": "이 컴포넌트에서는 생성형 LLM을 아예 사용하지 않음. 수천 개의 특허 특화 정규식 패턴과 Bio-NLP 개체명 인식(NER) 모델만을 파이프라인으로 연결하여 데이터를 추출. 런타임 비용 0원, 100% 재현성 보장. 단, 초기에 수많은 엣지 케이스 룰을 사람이 짜야 함."
+  },
+  "recommended_for_planning": [
+    "Rule-based Tree Builder + LLM Local Parser (하이브리드)"
+  ],
+  "explicitly_rejected": [
+    "Iterative Multi-Agent extraction (비용 및 복잡도 측면에서 MVP 단계 오버스펙)"
+  ],
+  "open_questions_for_human": [
+    "Phase 1 MVP에서 타겟으로 하는 특허 언어가 영어 전용인지, 아니면 다국어(한국어, 일본어 등)를 포함하는지? (정규식 트리 빌더의 설계에 큰 영향을 미침)"
+  ]
+}

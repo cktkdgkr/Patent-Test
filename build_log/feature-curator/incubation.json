@@ -1,0 +1,45 @@
+{
+  "build_target": "Layer 2 Dataset Curator: 실무자의 리뷰 결과나 정답 데이터를 취합하여 고품질의 골든셋(Golden Set)을 생성하고, 이를 Layer 3(Meta-harness)가 절대 수정할 수 없는 IMMUTABLE 경로에 적재하는 파이프라인 컴포넌트",
+  "requirements_unpacked": [
+    "특허 번호, 원문, 사람 라벨러의 최종 판단 등급, 사유(Reasoning) 데이터 취합",
+    "Layer 3가 읽을 수는 있지만 임의로 변경할 수 없는 파일 권한/경로 관리",
+    "향후 Eval Runner(평가기)가 일괄 처리하기 좋은 표준 데이터 구조 채택",
+    "동시 쓰기 처리 안정성 확보"
+  ],
+  "design_approaches": [
+    {
+      "name": "Direct DB Integration (전통적 RDBMS/NoSQL 연동)",
+      "idea": "PostgreSQL이나 MongoDB 등에 골든셋 테이블을 만들고 쿼리를 통해 데이터를 적재/조회함.",
+      "libraries_patterns": "SQLAlchemy, PyMongo",
+      "pros_cons": "장점: 동시성과 무결성 관리가 완벽함. 단점: DB 인프라 세팅, 계정(Layer 3용 Read-only 계정) 관리 오버헤드가 발생하여 MVP 구성 시 복잡도 증가.",
+      "coupling": "외부 데이터베이스 인프라에 종속됨."
+    },
+    {
+      "name": "Local File-based JSONL Archive (로컬 파일 기반)",
+      "idea": "별도 DB 없이 파일시스템 내 `/protected/golden_set/` 경로에 Append-only 형태의 JSONL(JSON Lines) 파일로 골든셋을 누적 기록.",
+      "libraries_patterns": "json, fcntl (파일 락)",
+      "pros_cons": "장점: 매우 가볍고 인프라 설정이 불필요. JSONL은 줄 단위로 파싱되어 Eval Runner가 읽기 좋음. 단점: 동시성 처리가 다소 투박함.",
+      "coupling": "파일시스템 종속적이나 격리 원칙 지키기 쉬움."
+    },
+    {
+      "name": "Git-based Version Control (버전 관리 기반)",
+      "idea": "골든셋을 로컬 마크다운/JSON 형태로 기록한 뒤 내부적으로 `git commit`을 자동 수행하여 형상을 관리.",
+      "libraries_patterns": "GitPython",
+      "pros_cons": "장점: 변경 이력(Audit Trail)이 완벽하게 남음. 단점: 매 수정마다 Git IO 오버헤드 발생.",
+      "coupling": "Git 바이너리 및 저장소 환경에 의존."
+    }
+  ],
+  "non_obvious_option": {
+    "idea": "Read-Only Google Sheets Integration (스프레드시트 연동 덤프)",
+    "description": "실무자(사람)는 익숙한 구글 스프레드시트에서만 라벨링을 진행합니다. Curator 모듈은 단순히 주기적으로 해당 시트 데이터를 긁어와(Read-only) 로컬 파일시스템에 덤프(Dump)하는 역할만 수행합니다. 이 방식은 UI 개발 비용을 0으로 만들고 보안(Layer 3는 시트 접근 불가)을 자연스럽게 분리합니다."
+  },
+  "recommended_for_planning": [
+    "Local File-based JSONL Archive (로컬 파일 기반)"
+  ],
+  "explicitly_rejected": [
+    "Direct DB Integration (인프라 구축 리소스 낭비 방지)"
+  ],
+  "open_questions_for_human": [
+    "실제 평가 실무자가 골든셋 라벨을 입력하는 인터페이스가 이미 내부에 존재하나요? 존재한다면 해당 인터페이스와의 연동 포맷(JSON/CSV)을 어떻게 맞출지 확인해야 합니다."
+  ]
+}

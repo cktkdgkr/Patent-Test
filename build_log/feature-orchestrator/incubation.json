@@ -1,0 +1,45 @@
+{
+  "build_target": "Layer 1 Orchestrator: 사용자의 요청(특허 번호, 자사 타겟 스펙)을 받아 Retriever -> Parser -> Risk Analyzer 파이프라인을 순차적으로 호출하고 최종 결과를 반환하는 실행 제어탑",
+  "requirements_unpacked": [
+    "각 개별 모듈(Retriever, Parser, Analyzer)의 입력/출력 데이터 흐름 조율",
+    "특정 단계에서 예외(Exception) 발생 시 전체 파이프라인 중단 및 사용자 친화적 에러 로깅",
+    "향후 Reviewer UI(웹 등)가 호출하기 편한 단일 진입점(Entrypoint) 제공",
+    "여러 청구항(Claims) 분석 시 지연 시간을 최소화하기 위한 병렬/비동기 처리 고려"
+  ],
+  "design_approaches": [
+    {
+      "name": "Synchronous Procedural Script (동기식 순차 호출)",
+      "idea": "가장 단순한 파이썬 함수로 Retriever 결과 받기 -> Parser 돌리기 -> Analyzer 돌리기를 동기식으로 호출.",
+      "libraries_patterns": "순수 Python 제어문",
+      "pros_cons": "장점: 로직이 직관적이고 디버깅이 매우 쉬움. 단점: 특허 내 수십 개의 청구항을 하나씩 분석하므로 전체 실행 시간이 너무 길어짐.",
+      "coupling": "각 컴포넌트를 강하게 결합하는 중앙 컨트롤러 형태."
+    },
+    {
+      "name": "Asynchronous Pipeline (비동기 파이프라인)",
+      "idea": "asyncio 모듈을 활용하여 I/O 바운드 작업(특허 파일 읽기, LLM API 호출)을 비동기(async/await)로 처리. 특히 여러 개의 청구항을 Analyzer로 던질 때 병렬(gather) 처리.",
+      "libraries_patterns": "asyncio",
+      "pros_cons": "장점: 여러 청구항을 분석할 때 응답 시간을 획기적으로 단축. 단점: 에러 핸들링(일부 청구항만 실패했을 때의 처리)이 동기식보다 까다로움.",
+      "coupling": "비동기 인터페이스에 맞게 모든 모듈을 호출해야 함."
+    },
+    {
+      "name": "Task Queue Architecture (워커 기반 아키텍처)",
+      "idea": "각 모듈을 독립된 워커(Worker) 태스크로 띄우고 Celery나 Redis 메세지 큐를 통해 상태를 넘겨받으며 실행.",
+      "libraries_patterns": "Celery, Redis",
+      "pros_cons": "장점: 시스템 스케일아웃이 완벽하며 안정성 최고. 단점: 인프라 의존성이 생겨 MVP 단계에서 지나친 오버스펙.",
+      "coupling": "메시지 브로커를 통한 느슨한 결합(Decoupling)."
+    }
+  ],
+  "non_obvious_option": {
+    "idea": "LangGraph 기반 Workflow 컴파일",
+    "description": "세 모듈을 각각 LangGraph의 'Node'로 래핑하고, 특허 분석 데이터를 'State' 객체로 정의하여 그래프(DAG) 형태로 파이프라인을 엮는 방식. 향후 특정 조건(예: 이미 검토된 특허)에서는 분석을 생략하는 분기 처리나, 중간에 사람이 개입(Human-in-the-loop)하는 구조를 추가하기 매우 용이함."
+  },
+  "recommended_for_planning": [
+    "Asynchronous Pipeline (비동기 파이프라인)"
+  ],
+  "explicitly_rejected": [
+    "Task Queue Architecture (MVP 단계 인프라 오버헤드 과다)"
+  ],
+  "open_questions_for_human": [
+    "향후 이 Orchestrator를 호출할 환경이 비동기 환경(예: FastAPI 웹 서버)인가요? 만약 그렇다면 비동기 파이프라인 도입이 필수적입니다."
+  ]
+}

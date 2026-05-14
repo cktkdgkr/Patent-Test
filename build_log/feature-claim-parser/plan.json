@@ -1,0 +1,54 @@
+{
+  "selected_approach": {
+    "name": "Rule-based Tree Builder + LLM Local Parser (하이브리드)",
+    "reason": "사용자 자동 승인. 구조적 환각을 원천 방지하고 % identity 등 핵심 요소를 병렬로 빠르게 추출할 수 있어 안정성과 속도 측면에서 MVP 단계에 가장 적합함. 언어는 영어(English)로 가정함."
+  },
+  "change_scope": {
+    "files_to_create": [
+      "production/parser/tree_builder.py",
+      "production/parser/llm_extractor.py",
+      "production/parser/models.py",
+      "production/parser/__init__.py"
+    ],
+    "files_to_modify": [],
+    "untouched_areas": [
+      "production/retriever/*",
+      "production/analyzer/*",
+      "core/sanitizer.py",
+      "harness/*",
+      "meta_harness_workspace/*"
+    ]
+  },
+  "interfaces": {
+    "tree_builder.py": "def build_claim_tree(patent_text: str) -> List[ClaimNode]: ...",
+    "llm_extractor.py": "async def extract_features(claim_node: ClaimNode) -> ClaimFeatures: ...",
+    "models.py": "class ClaimNode(BaseModel):\n    id: int\n    parent_id: Optional[int]\n    text: str\n\nclass ClaimFeatures(BaseModel):\n    percent_identity: Optional[float]\n    functional_limitations: List[str]\n    markush_structures: List[str]"
+  },
+  "change_atomicity": {
+    "description": "Atomic. 이 변경은 오직 Claim Parser 모듈의 신규 생성만을 다룸. Retriever에서 데이터를 받아오거나 Analyzer로 데이터를 넘기는 연동 파트는 완전히 별도의 PR(Plan)로 분리함."
+  },
+  "implementation_order": [
+    "1. `models.py` 데이터 구조(Pydantic 스키마) 정의",
+    "2. `tree_builder.py` 정규식 기반 청구항 분리 및 트리 생성 로직 구현",
+    "3. `llm_extractor.py` 비동기 프롬프트 호출 및 구조화된 추출 로직 구현",
+    "4. 테스트 스크립트 작성 및 Lightweight 검증"
+  ],
+  "predicted_behavior": {
+    "expected_input": "1. A method for enzymatic conversion... \n2. The method of claim 1, wherein the sequence has at least 90% identity...",
+    "expected_output": "[{'id': 1, 'parent_id': null, 'identity': null}, {'id': 2, 'parent_id': 1, 'identity': 90.0}]",
+    "failure_cases": "청구항 번호가 로마자(I, II)이거나 비표준 포맷인 경우 트리 파싱이 실패하며 Fail-closed 됨."
+  },
+  "validation_plan": {
+    "unit_tests": "정규식이 복잡한 의존 관계(예: claim 1 or 2)를 단일 부모/다중 부모로 제대로 매핑하는지 확인.",
+    "smoke_test": "Sanitizer를 통과한 더미 영어 특허 텍스트를 넣어 Pydantic 구조에 맞게 에러 없이 반환되는지 확인."
+  },
+  "rollback_plan": {
+    "trigger": "초기 테스트 시 정규식 파싱 실패율이 10% 이상이거나 LLM 호출 시 Pydantic ValidationError가 빈발할 경우",
+    "procedure": "이 커밋(Plan)을 Revert 하고 정규식을 보완하는 새로운 Plan 수립."
+  },
+  "risk_assessment": {
+    "rule_0_impact": "Parser는 반드시 Sanitizer 미들웨어를 통과한 데이터만 인자로 받도록 강제됨.",
+    "immutable_invasion": "Layer 3의 protected 영역이나 Golden set 파일은 전혀 건드리지 않음."
+  },
+  "human_review_required": "정규식 패턴이 실제 현업 효소 특허 문서(English)들의 포맷을 충분히 커버할 수 있는지 샘플 리뷰 필요."
+}
