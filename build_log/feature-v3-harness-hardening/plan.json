@@ -36,6 +36,7 @@
       "enzyme-patent-harness/production/analyzer/models.py",
       "enzyme-patent-harness/production/analyzer/evaluator.py",
       "enzyme-patent-harness/production/orchestrator/pipeline.py",
+      "enzyme-patent-harness/scripts/run_smoke_tests.py",
       "enzyme-patent-harness/scripts/verify_triad.py",
       "enzyme-patent-harness/test_retriever.py",
       "enzyme-patent-harness/test_parser.py",

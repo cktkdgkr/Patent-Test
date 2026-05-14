@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from typing import List, Optional
 
 from core.access_control import Layer
@@ -129,17 +130,74 @@ class RiskAnalyzer:
                 confidence=0.68,
                 reasoning="Detected variant or Markush language without enough target detail.",
             )
-        if any(feature.functional_limitations for feature in features):
+        functional_limitations = [
+            limitation
+            for feature in features
+            for limitation in feature.functional_limitations
+        ]
+        if functional_limitations:
+            target_ph = cls._target_ph(target_spec)
+            claim_ph_ranges = cls._claim_ph_ranges(functional_limitations)
+            if target_ph is not None and claim_ph_ranges:
+                if any(low <= target_ph <= high for low, high in claim_ph_ranges):
+                    return RiskReport(
+                        grade=RiskGrade.LOW,
+                        confidence=0.66,
+                        reasoning=(
+                            f"Target pH {target_ph} overlaps a functional pH limitation "
+                            "detected in the claims."
+                        ),
+                    )
+                return RiskReport(
+                    grade=RiskGrade.SAFE,
+                    confidence=0.7,
+                    reasoning=(
+                        f"Target pH {target_ph} does not overlap detected claim pH "
+                        "limitations."
+                    ),
+                )
             return RiskReport(
-                grade=RiskGrade.LOW,
-                confidence=0.6,
-                reasoning="Detected functional claim limitations but no direct identity overlap.",
+                grade=RiskGrade.SAFE,
+                confidence=0.62,
+                reasoning=(
+                    "Detected functional claim limitations, but the target specification "
+                    "does not provide matching functional conditions for an overlap finding."
+                ),
             )
         return RiskReport(
             grade=RiskGrade.SAFE,
             confidence=0.55,
             reasoning="No identity, Markush, or functional overlap signals were detected.",
         )
+
+    @staticmethod
+    def _target_ph(target_spec: dict) -> Optional[float]:
+        for key in ("pH", "ph", "target_pH", "target_ph"):
+            value = target_spec.get(key)
+            if isinstance(value, (int, float)):
+                return float(value)
+            if isinstance(value, str):
+                try:
+                    return float(value)
+                except ValueError:
+                    continue
+        return None
+
+    @staticmethod
+    def _claim_ph_ranges(functional_limitations: List[str]) -> List[tuple[float, float]]:
+        ranges: List[tuple[float, float]] = []
+        for limitation in functional_limitations:
+            for match in re.finditer(
+                r"\bpH\s*(\d+(?:\.\d+)?)(?:\s*-\s*(\d+(?:\.\d+)?))?",
+                limitation,
+                flags=re.IGNORECASE,
+            ):
+                low = float(match.group(1))
+                high = float(match.group(2)) if match.group(2) else low
+                if low > high:
+                    low, high = high, low
+                ranges.append((low, high))
+        return ranges
 
     @staticmethod
     def _trace_report(
