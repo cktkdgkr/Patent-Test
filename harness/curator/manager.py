@@ -1,5 +1,9 @@
-import os
 import logging
+import os
+from typing import Optional
+
+from core.access_control import AccessAction, DataCategory, Layer, assert_access
+from core.sanitizer import Sanitizer
 from harness.curator.models import GoldenRecord
 
 logger = logging.getLogger(__name__)
@@ -14,18 +18,27 @@ class GoldenSetManager:
     """
     
     @classmethod
-    def append_to_golden_set(cls, record: GoldenRecord) -> None:
+    def append_to_golden_set(cls, record: GoldenRecord, master_file: Optional[str] = None) -> None:
         """
         Appends a GoldenRecord as a JSON string to the master.jsonl file.
         """
-        if not os.path.exists(BASE_DIR):
-            os.makedirs(BASE_DIR, exist_ok=True)
+        assert_access(
+            Layer.REVIEWER,
+            DataCategory.GOLDEN_SET,
+            AccessAction.WRITE,
+            reason=f"append:{record.patent_id}",
+        )
+        target_file = master_file or MASTER_FILE
+        target_dir = os.path.dirname(target_file)
+        if target_dir and not os.path.exists(target_dir):
+            os.makedirs(target_dir, exist_ok=True)
             
+        Sanitizer.sanitize_payload(record.model_dump())
         json_str = record.model_dump_json()
         
         # In MVP, we just use append mode. In production, fcntl locks would be needed for concurrency.
         try:
-            with open(MASTER_FILE, "a", encoding="utf-8") as f:
+            with open(target_file, "a", encoding="utf-8") as f:
                 f.write(json_str + "\n")
             logger.info(f"Successfully appended record for {record.patent_id} to golden set.")
         except Exception as e:

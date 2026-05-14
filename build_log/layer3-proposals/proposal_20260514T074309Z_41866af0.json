@@ -1,0 +1,27 @@
+{
+  "created_at": "2026-05-14T07:43:09.783514+00:00",
+  "expected_effects": [
+    "Preserve or improve recall floor.",
+    "Reduce critical misses without changing evaluation code.",
+    "Keep ECE no worse than the current baseline.",
+    "Leave golden set, metric definitions, sanitizer, and gate code untouched."
+  ],
+  "forbidden_actions": [
+    "Do not modify protected golden set or labels.",
+    "Do not modify evaluator metric calculations.",
+    "Do not modify sanitizer or data protection rules.",
+    "Do not overwrite production or harness code directly from Layer 3."
+  ],
+  "proposal_id": "proposal_20260514T074309Z_41866af0",
+  "rationale": "Non-critical disagreements remain; propose parser or reporting improvements after preserving recall.",
+  "required_gates": [
+    "Incubation document exists for the proposed build task.",
+    "Atomic plan document exists and is approved.",
+    "Lightweight validation passes.",
+    "Full evaluation passes recall, critical miss, category, ECE, Pareto, and human-review gates."
+  ],
+  "status": "proposal_only_requires_plan_review",
+  "target_files": [
+    "production/parser/llm_extractor.py"
+  ]
+}

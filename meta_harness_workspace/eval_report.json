@@ -1,0 +1,33 @@
+{
+  "metrics": {
+    "total_cases": 2,
+    "positive_cases": 1,
+    "true_positives": 1,
+    "false_positives": 1,
+    "false_negatives": 0,
+    "accuracy": 0.5,
+    "recall": 1.0,
+    "precision": 0.5,
+    "critical_misses": 0,
+    "ece": 0.43,
+    "per_category_recall": {
+      "uncategorized": 1.0
+    },
+    "data_protection_violations": 0,
+    "context_cost": 0.0,
+    "latency_ms": 0.0,
+    "reasoning_quality": 1.0
+  },
+  "failed_cases": [
+    {
+      "patent_id": "mock_enzyme_002",
+      "category": "uncategorized",
+      "human_grade": "SAFE",
+      "machine_grade": "LOW",
+      "machine_confidence": 0.6,
+      "machine_reasoning": "Detected functional claim limitations but no direct identity overlap.",
+      "is_critical": false,
+      "is_false_negative": false
+    }
+  ]
+}

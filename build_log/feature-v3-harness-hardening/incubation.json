@@ -1,0 +1,76 @@
+{
+  "build_target": "Harden the existing enzyme patent screening harness so it reflects the v3 three-layer specification and the build-time Triad patch. The task is to turn the current prototype into a safer Phase 1/Phase 2-ready harness foundation with explicit access control, sanitizer enforcement, recall-first evaluation metrics, raw trace persistence, immutable-area guardrails, a proposal-only Meta-Harness layer, and auditable build artifacts.",
+  "requirements_unpacked": [
+    "Keep Layer 1 production code, Layer 2 harness code, and Layer 3 meta-harness code separated by directory and responsibility.",
+    "Enforce Rule 0 data protection before any LLM-facing or filesystem-persisted payload, including recursive structured payloads.",
+    "Define a data access control matrix covering patent data, golden set labels, human labels, model outputs, raw traces, protected metrics, build logs, and PII/financial data.",
+    "Replace accuracy-first evaluation with recall-first metrics, critical miss tracking, per-category recall, ECE, and data protection violation accounting.",
+    "Persist Layer 1 and Layer 2 execution traces in a machine-readable raw filesystem layout for later Layer 3 inspection.",
+    "Keep metric definitions, golden set records, sanitizer code, and deployment gate logic outside Layer 3 mutable scope.",
+    "Make Layer 3 proposal-only: it may inspect allowed artifacts and produce candidate proposals, but must not overwrite production or harness code directly.",
+    "Add deployment gate logic that rejects recall regressions, critical miss increases, category regressions, ECE regressions, data protection violations, and non-Pareto candidates.",
+    "Update the Meta-Harness skill file so the Triad rule, mutable/immutable boundaries, and domain constraints are readable and not mojibake.",
+    "Strengthen Triad CI verification with explicit exemptions, fake-diversity checks, and atomic-plan checks.",
+    "Add focused tests that run without external LLM credentials by using deterministic fallback behavior."
+  ],
+  "design_approaches": [
+    {
+      "name": "Policy-first hardening inside the current Python harness",
+      "idea": "Add small reusable policy, sanitizer, trace, metric, and gate primitives around the current modules while preserving the existing directory layout and smoke-test style. The prototype remains easy to inspect and can graduate to stricter filesystem permissions later.",
+      "libraries_patterns": "Python standard library, Pydantic models already present, explicit enum-based policy matrix, JSONL audit and trace files.",
+      "pros": "Low migration risk, fits the existing codebase, allows offline tests, and makes each v3 control visible in code.",
+      "cons": "Filesystem permissions are represented as code-level guardrails rather than OS-level mounts in local development.",
+      "trade_off": "Best for Phase 1 because it builds the control plane without introducing infrastructure complexity prematurely.",
+      "coupling_confounds": "Touches several modules, so tests must verify that production, harness, and meta-harness responsibilities remain distinct."
+    },
+    {
+      "name": "External orchestration service with strict sandbox mounts",
+      "idea": "Move evaluation, deployment gate, audit logging, and Layer 3 proposal execution into a separate service that mounts production and harness areas with explicit OS-level permissions.",
+      "libraries_patterns": "Container profiles, read-only mounts, service-to-service APIs, policy-as-code.",
+      "pros": "Closest to the eventual production security posture and strongest immutable enforcement.",
+      "cons": "Too heavy for the current local prototype and would require CI/container work before basic harness behavior is complete.",
+      "trade_off": "More secure long-term, but slower and harder to validate in this repository right now.",
+      "coupling_confounds": "Infrastructure changes could obscure whether metric and workflow semantics are correct."
+    },
+    {
+      "name": "Documentation-only architecture pass",
+      "idea": "Leave the code mostly intact and add the requested matrices, phase checklists, reward-hacking scenarios, and operating rules as architecture documents.",
+      "libraries_patterns": "Markdown specification and manual review checklist.",
+      "pros": "Fastest path and useful for stakeholder alignment.",
+      "cons": "Does not stop unsafe behaviors already present, such as direct Layer 3 overwrites or unsanitized prompt construction.",
+      "trade_off": "Useful as a supplement, not enough for a harness that should actually enforce the v3 constraints.",
+      "coupling_confounds": "Creates a gap between written policy and executable behavior."
+    }
+  ],
+  "non_obvious_option": {
+    "name": "Defer Layer 3 entirely and only ship Layer 1 plus Layer 2 MVP",
+    "idea": "Remove or disable the existing Meta-Harness agent and focus only on Dataset Curator, Eval Runner, and Reviewer UI style artifacts until the golden set and human trust criteria are mature.",
+    "why_considered": "The v3 roadmap says Phase 1 keeps Layer 3 inactive, and direct self-editing is a significant reward-hacking risk.",
+    "why_not_selected_as_only_path": "The repository already contains a Layer 3 prototype, so replacing it with a safe proposal-only skeleton is better than leaving unsafe code in place."
+  },
+  "recommended_for_planning": [
+    {
+      "name": "Policy-first hardening inside the current Python harness",
+      "reason": "It gives the user a working harness structure now, keeps the current code recognizable, and converts the unsafe Layer 3 prototype into a controlled proposal workflow."
+    },
+    {
+      "name": "Documentation-only architecture pass as a companion artifact",
+      "reason": "The TXT explicitly asks for matrices, reward-hacking scenarios, phase checklists, Triad exemptions, and CI mechanisms; these belong in a concise architecture document alongside executable checks."
+    }
+  ],
+  "explicitly_rejected": [
+    {
+      "name": "External orchestration service with strict sandbox mounts",
+      "reason": "Correct direction for Phase 3 infrastructure, but too large for this local harness construction pass and likely to hide core metric and policy logic behind deployment setup."
+    },
+    {
+      "name": "Keep the direct self-healing code writer",
+      "reason": "It violates the v3 build-time Triad patch, lets Layer 3 overwrite production code directly, and gives the proposer too much opportunity to game evaluation."
+    }
+  ],
+  "open_questions_for_human": [
+    "Which exact patent claim categories should be mandatory in the first real golden set beyond percent_identity, Markush, functional_claim, variant_claim, motif_claim, and non_english?",
+    "What human approval threshold should trigger mandatory review: changed LOC, touched modules, semantic risk class, or all Layer 3 proposals during Phase 3?",
+    "Which enterprise CI system will enforce the Triad gate: GitHub Actions, GitLab CI, Azure DevOps, or an internal merge queue?"
+  ]
+}

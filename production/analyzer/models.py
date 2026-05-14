@@ -8,5 +8,6 @@ class RiskGrade(str, Enum):
     SAFE = 'SAFE'
 
 class RiskReport(BaseModel):
-    reasoning: str = Field(description="Chain of Thought reasoning explaining why this grade was chosen.")
+    reasoning: str = Field(description="Concise audit rationale explaining why this grade was chosen.")
     grade: RiskGrade = Field(description="The final computed risk grade.")
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="Calibratable confidence for the final grade.")

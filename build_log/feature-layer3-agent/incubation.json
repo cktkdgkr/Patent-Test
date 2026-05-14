@@ -1,0 +1,47 @@
+{
+  "build_target": "Layer 3 Meta-Harness Agent: Layer 2(Eval Runner)가 뱉어낸 채점 결과(eval_report.json)를 읽고, 정확도가 떨어지는 원인을 분석하여 Layer 1의 파이썬 코드(주로 프롬프트)를 스스로 수정하고 검증하는 자동화 스크립트 봇",
+  "requirements_unpacked": [
+    "Layer 2의 채점표(eval_report.json) 읽기 기능",
+    "Layer 1의 소스 코드(llm_extractor.py, evaluator.py) 읽기 기능",
+    "LLM API를 호출하여 수정된 파이썬 코드를 생성(Code Generation)하는 기능",
+    "새로운 코드로 덮어쓴 후 Eval Runner를 다시 돌려 점수가 올랐는지 확인하는 검증(Validation) 루프",
+    "실패 시 코드를 원래대로 돌려놓는 롤백(Revert) 메커니즘",
+    "Layer 2의 정답지 영역(/protected/golden_set)에는 절대 쓸 수 없도록 하는 권한 제약 준수"
+  ],
+  "design_approaches": [
+    {
+      "name": "Fully Autonomous LLM Agent Loop (다중 턴 에이전트)",
+      "idea": "LangChain 기반으로 ReAct 프레임워크를 적용하여, 에이전트가 코드를 고치고, 에러가 나면 콘솔 에러를 읽고, 다시 고치는 과정을 점수가 오를 때까지 무한 반복함.",
+      "libraries_patterns": "LangChain, LangGraph",
+      "pros_cons": "장점: 복잡한 로직 버그까지 스스로 해결할 가능성이 높음. 단점: 무한 루프에 빠지거나 API 비용이 폭주할 위험이 크며, 초기 구축 난이도가 높음.",
+      "coupling": "전체 시스템과 강하게 결합된 복잡한 컴포넌트."
+    },
+    {
+      "name": "One-shot Prompt & Test Bot (단발성 최적화 스크립트)",
+      "idea": "오직 '1번'의 기회만 줌. 리포트와 소스코드를 합쳐서 LLM에 던지고, 새 코드를 받아서 덮어쓴 뒤 평가기를 1번 돌림. 점수가 오르면(예: 0 -> 1.0) 채택하고, 에러가 나거나 점수가 그대로면 즉시 롤백(Discard).",
+      "libraries_patterns": "google-genai, 순수 파이썬 제어문",
+      "pros_cons": "장점: 코드가 뻗거나 비용이 폭발할 위험이 전혀 없고 매우 안정적임. 단점: 1회만에 못 고치면 다음 스케줄(예: 내일 자정)까지 개선이 지연됨.",
+      "coupling": "단순 스크립트 형태로 독립성 유지."
+    },
+    {
+      "name": "Hyperparameter / Prompt Tuning Only (프롬프트 분리형)",
+      "idea": "Layer 1 코드를 건드리지 못하게 하고, 외부의 `prompts.yaml` 파일만 수정하도록 제한함.",
+      "libraries_patterns": "PyYAML",
+      "pros_cons": "장점: 파이썬 문법 에러(Syntax Error)로 시스템이 붕괴될 위험이 원천 차단됨. 단점: 특허 파서의 정규식(Tree Builder) 같은 로직 결함은 고치지 못함.",
+      "coupling": "설정 파일에만 결합."
+    }
+  ],
+  "non_obvious_option": {
+    "idea": "Human-in-the-loop Proposer (결재 대기형 에이전트)",
+    "description": "Layer 3가 코드를 직접 덮어쓰지 않고, `git checkout -b fix-prompt` 브랜치를 파서 수정한 뒤 GitHub에 Pull Request(PR)만 올립니다. 최종 적용은 사람이 PR을 읽고 승인(Merge)합니다. 안정성이 100% 보장되는 엔터프라이즈급 패턴입니다."
+  },
+  "recommended_for_planning": [
+    "One-shot Prompt & Test Bot (단발성 최적화 스크립트)"
+  ],
+  "explicitly_rejected": [
+    "Fully Autonomous LLM Agent Loop (API 비용 폭주 및 무한 루프 리스크로 초기 MVP에 부적합)"
+  ],
+  "open_questions_for_human": [
+    "Layer 3가 성공적으로 코드를 수정해서 점수를 올렸을 때, 자동으로 코드를 실반영(git commit)하게 할까요? 아니면 4번 대안처럼 사람에게 보고(또는 단순 파일 저장)만 하고 대기하게 할까요?"
+  ]
+}

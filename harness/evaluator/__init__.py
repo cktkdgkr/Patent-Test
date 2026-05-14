@@ -1,4 +1,11 @@
 from .models import EvalMetrics, EvalFailedCase, EvalReport
-from .runner import EvalRunner
 
 __all__ = ["EvalMetrics", "EvalFailedCase", "EvalReport", "EvalRunner"]
+
+
+def __getattr__(name):
+    if name == "EvalRunner":
+        from .runner import EvalRunner
+
+        return EvalRunner
+    raise AttributeError(name)

@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+meta_harness_workspace/experience/
+meta_harness_workspace/protected/audit_log/
+build_log/curator_test_tmp.jsonl

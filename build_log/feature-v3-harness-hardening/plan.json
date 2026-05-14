@@ -1,0 +1,137 @@
+{
+  "selected_approach": {
+    "name": "Policy-first hardening inside the current Python harness plus companion architecture document",
+    "reason": "This path directly fixes unsafe prototype behavior while preserving the repository layout and producing the explicit v3 governance artifacts requested in the TXT."
+  },
+  "change_scope": {
+    "files_to_create": [
+      "enzyme-patent-harness/.gitignore",
+      "enzyme-patent-harness/core/access_control.py",
+      "enzyme-patent-harness/core/trace_logger.py",
+      "enzyme-patent-harness/data/mock_patents/mock_enzyme_002.txt",
+      "enzyme-patent-harness/harness/deployment_gate.py",
+      "enzyme-patent-harness/docs/v3_harness_controls.md",
+      "enzyme-patent-harness/meta_harness_workspace/eval_report.json",
+      "enzyme-patent-harness/meta_harness_workspace/protected/metrics_definitions/metrics.md",
+      "enzyme-patent-harness/build_log/feature-layer3-agent/incubation.json",
+      "enzyme-patent-harness/build_log/feature-layer3-agent/plan.json",
+      "enzyme-patent-harness/build_log/feature-v3-harness-hardening/incubation.json",
+      "enzyme-patent-harness/build_log/feature-v3-harness-hardening/plan.json",
+      "enzyme-patent-harness/build_log/layer3-proposals/proposal_20260514T050233Z_d5a7ad70.json",
+      "enzyme-patent-harness/build_log/layer3-proposals/proposal_20260514T074309Z_41866af0.json",
+      ".github/workflows/enzyme-harness-triad.yml"
+    ],
+    "files_to_modify": [
+      "enzyme-patent-harness/core/sanitizer.py",
+      "enzyme-patent-harness/harness/curator/models.py",
+      "enzyme-patent-harness/harness/curator/manager.py",
+      "enzyme-patent-harness/harness/evaluator/models.py",
+      "enzyme-patent-harness/harness/evaluator/runner.py",
+      "enzyme-patent-harness/harness/evaluator/__init__.py",
+      "enzyme-patent-harness/harness/__init__.py",
+      "enzyme-patent-harness/meta_harness_workspace/agent.py",
+      "enzyme-patent-harness/meta_harness_workspace/skill/patent_screening_skill.md",
+      "enzyme-patent-harness/production/retriever/local_reader.py",
+      "enzyme-patent-harness/production/parser/llm_extractor.py",
+      "enzyme-patent-harness/production/analyzer/models.py",
+      "enzyme-patent-harness/production/analyzer/evaluator.py",
+      "enzyme-patent-harness/production/orchestrator/pipeline.py",
+      "enzyme-patent-harness/scripts/verify_triad.py",
+      "enzyme-patent-harness/test_retriever.py",
+      "enzyme-patent-harness/test_parser.py",
+      "enzyme-patent-harness/test_analyzer.py",
+      "enzyme-patent-harness/test_curator.py",
+      "enzyme-patent-harness/test_evaluator.py",
+      "enzyme-patent-harness/test_orchestrator.py",
+      "enzyme-patent-harness/test_v3_controls.py"
+    ],
+    "untouched_areas": [
+      "backend/",
+      "biosteam_V1/",
+      "boltz*/",
+      "enzyme-patent-harness/meta_harness_workspace/protected/golden_set/master.jsonl existing contents except read-only evaluation reads",
+      "any external TXT source file"
+    ]
+  },
+  "interfaces": {
+    "core.access_control": [
+      "class Layer(str, Enum)",
+      "class DataCategory(str, Enum)",
+      "class AccessAction(str, Enum)",
+      "class AccessController",
+      "def assert_access(layer: Layer, category: DataCategory, action: AccessAction, reason: str = '') -> None"
+    ],
+    "core.trace_logger": [
+      "class TraceLogger",
+      "def start_run(prefix: str = 'run') -> str",
+      "def write_event(run_id: str, patent_id: str, agent_name: str, event_name: str, payload: Mapping[str, Any]) -> Path"
+    ],
+    "harness.evaluator": [
+      "class EvalMetrics(BaseModel)",
+      "class EvalRunner",
+      "async def evaluate_golden_set(target_spec: dict | None = None, run_id: str | None = None) -> EvalReport"
+    ],
+    "harness.deployment_gate": [
+      "class DeploymentGate",
+      "def evaluate(baseline: EvalMetrics, candidate: EvalMetrics, changed_files: list[str], human_approved: bool = False) -> GateResult"
+    ],
+    "meta_harness_workspace.agent": [
+      "class MetaHarnessAgent",
+      "def generate_proposal(report_path: str | Path | None = None) -> MetaHarnessProposal",
+      "def validate_change_scope(paths: Iterable[str]) -> None"
+    ]
+  },
+  "change_atomicity": {
+    "atomic_change_count": 1,
+    "description": "A single foundation-hardening pass over the existing harness prototype. The files are grouped because the unsafe Layer 3 loop, missing access policy, weak sanitizer, and accuracy-first evaluator are mutually dependent safety defects in the same harness boundary.",
+    "future_split_recommendation": "In a real PR queue, split follow-up work into policy, evaluator metrics, meta-harness proposal UX, and CI hardening PRs after this foundation lands."
+  },
+  "implementation_order": [
+    "Add access policy and trace logging primitives.",
+    "Upgrade sanitizer to recursive fail-closed checks and audit-friendly category reporting.",
+    "Update Layer 1 modules to sanitize LLM-bound payloads and write raw traces without requiring external LLM credentials for tests.",
+    "Update Layer 2 golden record schema and evaluator metrics to recall-first behavior.",
+    "Add deployment gate logic outside Layer 3 mutable scope.",
+    "Replace direct Layer 3 code overwrite behavior with proposal-only scope validation.",
+    "Update skill and architecture docs with v3 matrix, reward-hacking scenarios, Phase 3 checklist, Phase 1 MVP, Triad exemptions, CI rules, anti-patterns, and atomic checks.",
+    "Strengthen Triad verification script and add CI workflow.",
+    "Run local smoke tests and Triad validation."
+  ],
+  "predicted_behavior": {
+    "clean_patent_input": "Retriever reads an allowed mock patent, sanitizer passes it, and a trace event is written under meta_harness_workspace/experience/<run_id>/<patent_id>/retriever/.",
+    "restricted_payload_input": "Any email, Korean resident registration number, passport-like number, card number, account-like financial number, phone number, or medical-record marker raises DataProtectionViolation before LLM or trace persistence.",
+    "golden_set_evaluation": "EvalRunner reads golden records through Layer 2 access policy, runs the production pipeline, computes recall, precision, critical misses, per-category recall, and ECE, and writes raw evaluator traces.",
+    "layer3_proposal": "MetaHarnessAgent reads an eval report and writes or returns a proposal, but rejects protected paths, sanitizer changes, evaluator metric changes, golden set files, and deployment gate changes as immutable scope violations.",
+    "gate_regression": "DeploymentGate rejects candidates with lower recall, more critical misses, per-category regressions beyond threshold, worse ECE, data protection violations, or insufficient Pareto behavior."
+  },
+  "validation_plan": {
+    "unit_tests": [
+      "Sanitizer blocks PII/financial examples and passes domain patent text.",
+      "Access policy denies all PII/financial access and denies Layer 3 immutable mutations.",
+      "Deployment gate accepts non-regressive Pareto candidates and rejects critical miss increases.",
+      "Triad verifier rejects fake-diverse incubation and multi-atomic plans."
+    ],
+    "integration_tests": [
+      "Run retriever, parser, analyzer, curator, orchestrator, and evaluator smoke tests from enzyme-patent-harness.",
+      "Run MetaHarnessAgent proposal smoke path without allowing direct code overwrite."
+    ],
+    "lightweight_smoke_test": "python scripts/verify_triad.py feature-v3-harness-hardening followed by the local test scripts."
+  },
+  "rollback_plan": {
+    "trigger": "Any smoke test fails due to the new policy/metric primitives, or existing clean patent retrieval and parser behavior no longer works.",
+    "procedure": "Revert the files listed in change_scope for this task, leaving prior build_log directories and golden set data untouched."
+  },
+  "risk_assessment": {
+    "rule_0_data_protection_impact": "Positive; recursive sanitizer and access control make fail-closed behavior explicit before LLM calls and trace writes.",
+    "immutable_area_invasion_risk": "Controlled; code blocks Layer 3 proposals touching protected metrics, golden set, sanitizer, evaluator metrics, deployment gate, or test-set paths.",
+    "producer_reviewer_separation_risk": "Controlled; Layer 1 writes model outputs and traces, Layer 2 reads golden set and production output, Layer 3 proposes only.",
+    "one_way_layer_flow_risk": "Controlled in code-level policy; OS-level read-only mounts remain a Phase 3 infrastructure task.",
+    "layer3_reward_hacking_risk": "Reduced by proposal-only behavior, immutable path validation, and an external deployment gate.",
+    "remaining_risk": "Local filesystem permissions are not true read-only mounts; the document marks this as a Phase 3 checklist item."
+  },
+  "human_review_required": [
+    "Approve final category floors and ECE thresholds before real patent deployment.",
+    "Review the skill file and protected metric definitions before any Layer 3 run is enabled.",
+    "Approve CI exemption labels and the list of Triad-exempt task types."
+  ]
+}
