@@ -14,6 +14,7 @@ from production.orchestrator.product_screening import (
     screen_product_against_patent_id,
     screen_product_against_patent_text,
 )
+from production.retriever import fetch_patent_by_identifier
 
 
 class CandidateScreeningFailure(BaseModel):
@@ -105,9 +106,24 @@ async def _screen_candidate(
             run_id=run_id,
         )
     if candidate.patent_id:
-        return await screen_product_against_patent_id(
+        fetch_result = fetch_patent_by_identifier(candidate.patent_id, run_id=run_id)
+        return await screen_product_against_patent_text(
             product=product,
-            patent_id=candidate.patent_id,
+            patent_id=fetch_result.patent_id,
+            source=fetch_result.source,
+            raw_text=fetch_result.raw_text,
             run_id=run_id,
         )
-    raise ValueError("Candidate row has no claim_text, patent_file, or patent_id")
+    identifier = candidate.publication_number or candidate.application_number
+    if identifier:
+        fetch_result = fetch_patent_by_identifier(identifier, run_id=run_id)
+        return await screen_product_against_patent_text(
+            product=product,
+            patent_id=fetch_result.patent_id,
+            source=fetch_result.source,
+            raw_text=fetch_result.raw_text,
+            run_id=run_id,
+        )
+    raise ValueError(
+        "Candidate row has no claim_text, patent_file, patent_id, publication_number, or application_number"
+    )

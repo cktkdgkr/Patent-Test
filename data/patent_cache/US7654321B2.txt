@@ -1,0 +1,2 @@
+1. An isolated enzyme variant having at least 75% identity to SEQ ID NO:10.
+2. The enzyme variant of claim 1, wherein the variant retains protease activity in a detergent composition.

@@ -49,9 +49,11 @@ such as:
 - `keywords`
 
 The current local workflow can screen rows that contain `claim_text`, a local
-`patent_file`, or a local mock `patent_id`. Rows that only contain a real-world
-publication number are preserved as candidates, but external patent fetching is
-the next connector step.
+`patent_file`, a local mock `patent_id`, or a `publication_number` /
+`application_number` that has a matching cached text file under
+`data/patent_cache`. Rows with real-world publication numbers but no cache entry
+are reported as failed candidates until an external patent database connector is
+configured.
 
 ```powershell
 python scripts\screen_excel.py --product examples\product_alpha.json --excel examples\patent_candidates.csv --output build_log\batch_screening_report.json --summary-csv build_log\batch_screening_summary.csv

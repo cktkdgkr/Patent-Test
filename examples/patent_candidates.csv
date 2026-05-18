@@ -1,8 +1,9 @@
-candidate_id,title,claim_text,keywords
-candidate_ph_overlap,Protease pH window,"1. A method for treating a protein substrate comprising contacting the substrate with a protease enzyme.
+candidate_id,publication_number,title,claim_text,keywords
+candidate_ph_overlap,,Protease pH window,"1. A method for treating a protein substrate comprising contacting the substrate with a protease enzyme.
 2. The method of claim 1, wherein the protease enzyme is active at pH 6-8.
 3. The method of claim 1, wherein the enzyme has at least 95% identity to SEQ ID NO:9.",protease;pH
-candidate_markush,Markush enzyme composition,"1. An enzyme composition comprising an enzyme selected from the group consisting of protease, lipase, and amylase.
+candidate_markush,,Markush enzyme composition,"1. An enzyme composition comprising an enzyme selected from the group consisting of protease, lipase, and amylase.
 2. The composition of claim 1, wherein the enzyme is formulated for industrial treatment.",markush;enzyme
-candidate_safe,General enzyme process,"1. A general enzyme process comprising contacting a substrate with an enzyme.
+candidate_safe,,General enzyme process,"1. A general enzyme process comprising contacting a substrate with an enzyme.
 2. The process of claim 1, wherein the enzyme is used in a conventional cleaning solution.",safe;general
+candidate_cached_identity,US7654321B2,Cached identity patent,,identity;cached

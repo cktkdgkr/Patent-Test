@@ -17,13 +17,20 @@ async def main():
 
     csv_path = ROOT / "examples" / "patent_candidates.csv"
     csv_candidates = read_patent_candidates(str(csv_path))
-    assert len(csv_candidates) == 3
+    assert len(csv_candidates) == 4
 
     csv_report = await screen_product_candidate_batch(product, csv_candidates, str(csv_path))
     print(csv_report.model_dump_json(indent=2))
-    assert csv_report.total_candidates == 3
-    assert csv_report.screened_count == 3
+    assert csv_report.total_candidates == 4
+    assert csv_report.screened_count == 4
+    assert csv_report.summary_by_grade["HIGH"] == 1
+    assert csv_report.summary_by_grade["MEDIUM"] == 1
     assert csv_report.summary_by_grade["LOW"] >= 1
+    assert csv_report.summary_by_grade["SAFE"] == 1
+    assert any(
+        report.source.replace("\\", "/").startswith("data/patent_cache")
+        for report in csv_report.reports
+    )
     assert any(report.design_around_options for report in csv_report.reports)
 
     xlsx_path = ROOT / "build_log" / "test_patent_candidates.xlsx"
