@@ -55,8 +55,17 @@ The current local workflow can screen rows that contain `claim_text`, a local
 are reported as failed candidates until an external patent database connector is
 configured.
 
+For a quick public-web preview, pass `--enable-web-fetch`. The current preview
+connector reads claims from Google Patents and writes fetched claim text under
+`data/patent_cache/web/` for later local reuse. Use this as a convenience
+connector, not as the authoritative legal record.
+
 ```powershell
 python scripts\screen_excel.py --product examples\product_alpha.json --excel examples\patent_candidates.csv --output build_log\batch_screening_report.json --summary-csv build_log\batch_screening_summary.csv
+```
+
+```powershell
+python scripts\screen_excel.py --product examples\product_alpha.json --excel examples\patent_candidates_web.csv --enable-web-fetch
 ```
 
 ## Output

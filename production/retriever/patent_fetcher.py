@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from core.access_control import AccessAction, DataCategory, Layer, assert_access
 from core.sanitizer import Sanitizer
 from core.trace_logger import TraceLogger
+from production.retriever.web_fetcher import fetch_google_patents_claims, write_web_cache
 
 
 class PatentFetchUnavailable(Exception):
@@ -22,6 +23,7 @@ class PatentFetchResult(BaseModel):
 def fetch_patent_by_identifier(
     identifier: str,
     run_id: Optional[str] = None,
+    allow_web: bool = False,
 ) -> PatentFetchResult:
     """
     Resolves a patent/publication/application identifier to local claim text.
@@ -49,6 +51,16 @@ def fetch_patent_by_identifier(
                 raw_text=raw_text,
             )
 
+    if allow_web:
+        source_url, raw_text = fetch_google_patents_claims(clean_identifier)
+        cache_path = write_web_cache(clean_identifier, raw_text)
+        _trace_fetch(run_id, clean_identifier, cache_path, raw_text)
+        return PatentFetchResult(
+            patent_id=clean_identifier,
+            source=source_url,
+            raw_text=raw_text,
+        )
+
     raise PatentFetchUnavailable(
         "No local patent text found for identifier "
         f"{clean_identifier}. Add claim text, patent_file, or a cache file under data/patent_cache."
@@ -67,6 +79,9 @@ def _candidate_paths(identifier: str) -> list[Path]:
     }
     return [
         root / "data" / "patent_cache" / f"{name}.txt"
+        for name in names
+    ] + [
+        root / "data" / "patent_cache" / "web" / f"{name}.txt"
         for name in names
     ] + [
         root / "data" / "mock_patents" / f"{name}.txt"

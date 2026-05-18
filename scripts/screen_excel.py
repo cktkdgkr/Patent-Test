@@ -19,7 +19,12 @@ async def _run(args: argparse.Namespace) -> int:
     candidates_path = _resolve(args.excel)
     product = ProductSpec(**json.loads(product_path.read_text(encoding="utf-8")))
     candidates = read_patent_candidates(str(candidates_path))
-    report = await screen_product_candidate_batch(product, candidates, str(candidates_path))
+    report = await screen_product_candidate_batch(
+        product,
+        candidates,
+        str(candidates_path),
+        allow_web_fetch=args.enable_web_fetch,
+    )
 
     output_path = _resolve(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -76,6 +81,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Screen one product against candidate patents from Excel/CSV.")
     parser.add_argument("--product", required=True, help="Path to product JSON under the repo")
     parser.add_argument("--excel", required=True, help="Path to .xlsx or .csv patent candidate file")
+    parser.add_argument(
+        "--enable-web-fetch",
+        action="store_true",
+        help="Fetch missing publication/patent IDs from public web sources when no local cache exists",
+    )
     parser.add_argument(
         "--output",
         default="build_log/batch_screening_report.json",

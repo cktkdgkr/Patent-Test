@@ -14,6 +14,7 @@ TESTS = [
     "test_evaluator.py",
     "test_product_screening.py",
     "test_excel_batch_screening.py",
+    "test_web_fetcher.py",
 ]
 
 

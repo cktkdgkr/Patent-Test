@@ -38,6 +38,7 @@ async def screen_product_candidate_batch(
     candidates: List[PatentCandidate],
     source_file: str,
     run_id: Optional[str] = None,
+    allow_web_fetch: bool = False,
 ) -> ProductBatchScreeningReport:
     run_id = run_id or TraceLogger.start_run("excel_batch_screening")
     reports: List[ProductPatentScreeningReport] = []
@@ -45,7 +46,15 @@ async def screen_product_candidate_batch(
 
     for candidate in candidates:
         try:
-            reports.append(await _screen_candidate(product, candidate, run_id, source_file))
+            reports.append(
+                await _screen_candidate(
+                    product,
+                    candidate,
+                    run_id,
+                    source_file,
+                    allow_web_fetch=allow_web_fetch,
+                )
+            )
         except Exception as exc:
             failures.append(
                 CandidateScreeningFailure(
@@ -85,6 +94,7 @@ async def _screen_candidate(
     candidate: PatentCandidate,
     run_id: str,
     source_file: str,
+    allow_web_fetch: bool = False,
 ) -> ProductPatentScreeningReport:
     candidate_id = candidate.display_patent_id()
     if candidate.claim_text:
@@ -106,7 +116,11 @@ async def _screen_candidate(
             run_id=run_id,
         )
     if candidate.patent_id:
-        fetch_result = fetch_patent_by_identifier(candidate.patent_id, run_id=run_id)
+        fetch_result = fetch_patent_by_identifier(
+            candidate.patent_id,
+            run_id=run_id,
+            allow_web=allow_web_fetch,
+        )
         return await screen_product_against_patent_text(
             product=product,
             patent_id=fetch_result.patent_id,
@@ -116,7 +130,11 @@ async def _screen_candidate(
         )
     identifier = candidate.publication_number or candidate.application_number
     if identifier:
-        fetch_result = fetch_patent_by_identifier(identifier, run_id=run_id)
+        fetch_result = fetch_patent_by_identifier(
+            identifier,
+            run_id=run_id,
+            allow_web=allow_web_fetch,
+        )
         return await screen_product_against_patent_text(
             product=product,
             patent_id=fetch_result.patent_id,
