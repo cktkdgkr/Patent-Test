@@ -5,3 +5,4 @@ __pycache__/
 meta_harness_workspace/experience/
 meta_harness_workspace/protected/audit_log/
 build_log/curator_test_tmp.jsonl
+build_log/product_screening_report.json

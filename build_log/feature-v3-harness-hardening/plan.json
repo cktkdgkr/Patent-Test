@@ -23,6 +23,12 @@
       "enzyme-patent-harness/build_log/feature-v3-harness-hardening/plan.json",
       "enzyme-patent-harness/build_log/layer3-proposals/proposal_20260514T050233Z_d5a7ad70.json",
       "enzyme-patent-harness/build_log/layer3-proposals/proposal_20260514T074309Z_41866af0.json",
+      "enzyme-patent-harness/docs/product_screening_workflow.md",
+      "enzyme-patent-harness/examples/product_alpha.json",
+      "enzyme-patent-harness/examples/candidate_patent_ph_overlap.txt",
+      "enzyme-patent-harness/production/orchestrator/product_screening.py",
+      "enzyme-patent-harness/scripts/screen_product.py",
+      "enzyme-patent-harness/test_product_screening.py",
       ".github/workflows/enzyme-harness-triad.yml"
     ],
     "files_to_modify": [
@@ -40,7 +46,10 @@
       "enzyme-patent-harness/production/parser/llm_extractor.py",
       "enzyme-patent-harness/production/analyzer/models.py",
       "enzyme-patent-harness/production/analyzer/evaluator.py",
+      "enzyme-patent-harness/production/orchestrator/__init__.py",
       "enzyme-patent-harness/production/orchestrator/pipeline.py",
+      "enzyme-patent-harness/production/retriever/__init__.py",
+      "enzyme-patent-harness/production/retriever/local_reader.py",
       "enzyme-patent-harness/scripts/run_smoke_tests.py",
       "enzyme-patent-harness/scripts/verify_triad.py",
       "enzyme-patent-harness/test_retriever.py",

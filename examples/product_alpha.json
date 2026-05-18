@@ -1,0 +1,16 @@
+{
+  "product_id": "enzyme_product_alpha",
+  "enzyme_name": "Alpha protease blend",
+  "identity": 80.0,
+  "ph": 7.0,
+  "temperature_c": 45.0,
+  "substrate": "protein substrate",
+  "enzyme_class": "protease",
+  "variant": "A123V",
+  "jurisdiction": "US",
+  "launch_date": "2026-09-01",
+  "metadata": {
+    "owner": "screening_demo",
+    "purpose": "local product screening smoke test"
+  }
+}

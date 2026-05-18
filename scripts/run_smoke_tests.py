@@ -12,6 +12,7 @@ TESTS = [
     "test_v3_controls.py",
     "test_orchestrator.py",
     "test_evaluator.py",
+    "test_product_screening.py",
 ]
 
 
