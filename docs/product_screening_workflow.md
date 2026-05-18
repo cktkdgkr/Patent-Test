@@ -68,6 +68,19 @@ python scripts\screen_excel.py --product examples\product_alpha.json --excel exa
 python scripts\screen_excel.py --product examples\product_alpha.json --excel examples\patent_candidates_web.csv --enable-web-fetch
 ```
 
+## Browser UI
+
+Run the local UI:
+
+```powershell
+python scripts\run_ui.py --port 8765
+```
+
+Then open `http://127.0.0.1:8765`. The UI accepts product assumptions and a
+candidate `.csv` or `.xlsx`, then shows patent-level risk, claim-level detail,
+and design-around candidate directions. The `웹 예시 실행` button uses
+`examples/patent_candidates_web.csv` and enables public-web claim fetching.
+
 ## Output
 
 The report contains:

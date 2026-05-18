@@ -9,4 +9,6 @@ build_log/product_screening_report.json
 build_log/batch_screening_report.json
 build_log/batch_screening_summary.csv
 build_log/test_patent_candidates.xlsx
+build_log/ui_uploads/
+build_log/ui_reports/
 data/patent_cache/web/
