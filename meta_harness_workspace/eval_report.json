@@ -1,17 +1,27 @@
 {
   "metrics": {
-    "total_cases": 2,
-    "positive_cases": 1,
-    "true_positives": 1,
+    "total_cases": 6,
+    "positive_cases": 4,
+    "true_positives": 4,
     "false_positives": 0,
     "false_negatives": 0,
     "accuracy": 1.0,
     "recall": 1.0,
     "precision": 1.0,
     "critical_misses": 0,
-    "ece": 0.32,
+    "ece": 0.305,
     "per_category_recall": {
-      "uncategorized": 1.0
+      "percent_identity": 1.0,
+      "functional_claim": 1.0,
+      "markush": 1.0,
+      "variant_claim": 1.0
+    },
+    "per_category_accuracy": {
+      "percent_identity": 1.0,
+      "functional_claim": 1.0,
+      "markush": 1.0,
+      "variant_claim": 1.0,
+      "non_english": 1.0
     },
     "data_protection_violations": 0,
     "context_cost": 0.0,

@@ -15,6 +15,7 @@ class EvalMetrics(BaseModel):
     critical_misses: int = Field(default=0, description="Count of human HIGH cases predicted SAFE")
     ece: float = Field(default=0.0, description="Expected calibration error")
     per_category_recall: Dict[str, float] = Field(default_factory=dict)
+    per_category_accuracy: Dict[str, float] = Field(default_factory=dict)
     data_protection_violations: int = Field(default=0)
     context_cost: float = Field(default=0.0)
     latency_ms: float = Field(default=0.0)

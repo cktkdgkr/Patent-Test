@@ -1,15 +1,12 @@
 import os
-import json
 import asyncio
 import logging
 from harness.evaluator import EvalRunner
 
 async def main():
-    target_spec = {'identity': 85.0} 
-    
     print("=== [Integration Test] Running Eval Runner ===")
     try:
-        report = await EvalRunner.evaluate_golden_set(target_spec)
+        report = await EvalRunner.evaluate_golden_set()
         print("\n--- Evaluation Complete ---")
         
         # Save report to JSON file for Layer 3 to read
@@ -19,9 +16,22 @@ async def main():
             
         print(f"Report successfully saved to {report_path}")
         print(report.model_dump_json(indent=2))
+
+        expected_categories = {
+            "percent_identity",
+            "functional_claim",
+            "markush",
+            "variant_claim",
+            "non_english",
+        }
+        assert report.metrics.total_cases == 6
+        assert report.metrics.accuracy == 1.0
+        assert not report.failed_cases
+        assert expected_categories.issubset(report.metrics.per_category_accuracy)
         
     except Exception as e:
         print(f"Evaluation failed: {e}")
+        raise
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")

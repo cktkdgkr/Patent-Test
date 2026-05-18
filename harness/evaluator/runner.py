@@ -62,6 +62,8 @@ class EvalRunner:
         }
         category_positive: Dict[str, int] = defaultdict(int)
         category_true_positive: Dict[str, int] = defaultdict(int)
+        category_total: Dict[str, int] = defaultdict(int)
+        category_correct: Dict[str, int] = defaultdict(int)
         calibration_errors: List[float] = []
         reasoning_scores: List[float] = []
         failed_cases: List[EvalFailedCase] = []
@@ -73,6 +75,7 @@ class EvalRunner:
             category = record.category or "uncategorized"
             case_target_spec = record.target_spec or target_spec or {}
             Sanitizer.sanitize_payload(case_target_spec)
+            category_total[category] += 1
 
             human_positive = human_grade in RISKY_GRADES
             if human_positive:
@@ -111,6 +114,7 @@ class EvalRunner:
             exact_match = human_grade == machine_grade
             if exact_match:
                 counters["correct"] += 1
+                category_correct[category] += 1
 
             false_negative = human_positive and not predicted_risky
             critical = human_grade == "HIGH" and machine_grade == "SAFE"
@@ -168,6 +172,10 @@ class EvalRunner:
             per_category_recall={
                 category: cls._safe_div(category_true_positive[category], count)
                 for category, count in category_positive.items()
+            },
+            per_category_accuracy={
+                category: cls._safe_div(category_correct[category], count)
+                for category, count in category_total.items()
             },
             data_protection_violations=counters["data_protection_violations"],
             reasoning_quality=sum(reasoning_scores) / len(reasoning_scores) if reasoning_scores else 0.0,

@@ -1,0 +1,2 @@
+1. An isolated enzyme variant comprising one or more amino acid substitutions relative to SEQ ID NO:2.
+2. The enzyme variant of claim 1, wherein the substitution improves stability.

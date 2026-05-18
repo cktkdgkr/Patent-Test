@@ -30,6 +30,12 @@ Candidates must not increase this count.
 Each golden record has one category. Category recall is computed with the same
 positive and true-positive definitions, restricted to that category.
 
+## Per-Category Accuracy
+
+Category accuracy is exact grade match restricted to one category. This keeps
+SAFE-only categories, such as non-English safe cases, visible even when they do
+not contribute to recall.
+
 ## Expected Calibration Error
 
 For the MVP harness, ECE is the mean absolute difference between reported

@@ -9,6 +9,10 @@
       "enzyme-patent-harness/core/access_control.py",
       "enzyme-patent-harness/core/trace_logger.py",
       "enzyme-patent-harness/data/mock_patents/mock_enzyme_002.txt",
+      "enzyme-patent-harness/data/mock_patents/mock_enzyme_003.txt",
+      "enzyme-patent-harness/data/mock_patents/mock_enzyme_004.txt",
+      "enzyme-patent-harness/data/mock_patents/mock_enzyme_005.txt",
+      "enzyme-patent-harness/data/mock_patents/mock_enzyme_006.txt",
       "enzyme-patent-harness/harness/deployment_gate.py",
       "enzyme-patent-harness/docs/v3_harness_controls.md",
       "enzyme-patent-harness/meta_harness_workspace/eval_report.json",
@@ -29,6 +33,7 @@
       "enzyme-patent-harness/harness/evaluator/runner.py",
       "enzyme-patent-harness/harness/evaluator/__init__.py",
       "enzyme-patent-harness/harness/__init__.py",
+      "enzyme-patent-harness/meta_harness_workspace/protected/golden_set/master.jsonl",
       "enzyme-patent-harness/meta_harness_workspace/agent.py",
       "enzyme-patent-harness/meta_harness_workspace/skill/patent_screening_skill.md",
       "enzyme-patent-harness/production/retriever/local_reader.py",
@@ -50,7 +55,7 @@
       "backend/",
       "biosteam_V1/",
       "boltz*/",
-      "enzyme-patent-harness/meta_harness_workspace/protected/golden_set/master.jsonl existing contents except read-only evaluation reads",
+      "enzyme-patent-harness/meta_harness_workspace/protected/golden_set/master.jsonl outside the reviewer-approved expanded mock cases in this task",
       "any external TXT source file"
     ]
   },
