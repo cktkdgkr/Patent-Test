@@ -35,6 +35,28 @@ You can also screen against an existing mock patent:
 python scripts\screen_product.py --product examples\product_alpha.json --patent-id mock_enzyme_004
 ```
 
+## Batch Screening From Excel Or CSV
+
+For multiple candidate patents, prepare a `.xlsx` or `.csv` file with columns
+such as:
+
+- `candidate_id`
+- `patent_id`
+- `publication_number`
+- `title`
+- `claim_text`
+- `patent_file`
+- `keywords`
+
+The current local workflow can screen rows that contain `claim_text`, a local
+`patent_file`, or a local mock `patent_id`. Rows that only contain a real-world
+publication number are preserved as candidates, but external patent fetching is
+the next connector step.
+
+```powershell
+python scripts\screen_excel.py --product examples\product_alpha.json --excel examples\patent_candidates.csv --output build_log\batch_screening_report.json --summary-csv build_log\batch_screening_summary.csv
+```
+
 ## Output
 
 The report contains:
@@ -43,6 +65,7 @@ The report contains:
 - claim-level grades
 - extracted claim features
 - overlap signals
+- design-around candidate directions
 - recommended next actions
 
 This is still a screening aid. A patent professional should review any

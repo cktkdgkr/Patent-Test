@@ -1,4 +1,5 @@
 import asyncio
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -43,6 +44,14 @@ class ClaimScreeningResult(BaseModel):
     overlap_signals: List[str] = Field(default_factory=list)
 
 
+class DesignAroundOption(BaseModel):
+    strategy_type: str
+    claim_id: int
+    basis: str
+    proposed_direction: str
+    verification_needed: str = "Requires patent counsel and experimental feasibility review."
+
+
 class ProductPatentScreeningReport(BaseModel):
     product: ProductSpec
     patent_id: str
@@ -51,6 +60,7 @@ class ProductPatentScreeningReport(BaseModel):
     overall_confidence: float
     overall_reasoning: str
     claim_results: List[ClaimScreeningResult]
+    design_around_options: List[DesignAroundOption] = Field(default_factory=list)
     recommended_next_actions: List[str]
     run_id: str
 
@@ -134,6 +144,7 @@ async def screen_product_against_patent_text(
         overall_confidence=overall_report.confidence,
         overall_reasoning=overall_report.reasoning,
         claim_results=claim_results,
+        design_around_options=_design_around_options(clean_product, claim_results),
         recommended_next_actions=_next_actions(overall_report.grade),
         run_id=run_id,
     )
@@ -185,6 +196,92 @@ def _overlap_signals(features: ClaimFeatures, target_spec: Dict[str, Any]) -> Li
     if not signals:
         signals.append("no_direct_overlap_signal")
     return signals
+
+
+def _design_around_options(
+    product: ProductSpec,
+    claim_results: List[ClaimScreeningResult],
+) -> List[DesignAroundOption]:
+    options: List[DesignAroundOption] = []
+    for result in claim_results:
+        if result.grade == RiskGrade.SAFE:
+            continue
+        features = result.features
+        if product.identity is not None and features.percent_identity is not None:
+            threshold = features.percent_identity
+            screening_floor = max(threshold - RiskAnalyzer.CAUTION_BUFFER_PERCENT, 0.0)
+            options.append(
+                DesignAroundOption(
+                    strategy_type="sequence_identity_design_space",
+                    claim_id=result.claim_id,
+                    basis=(
+                        f"Claim {result.claim_id} contains a {threshold}% identity "
+                        f"threshold and product identity is {product.identity}%."
+                    ),
+                    proposed_direction=(
+                        f"Explore enzyme variants below the claimed {threshold}% identity "
+                        f"threshold; for conservative screening, prioritize variants below "
+                        f"{screening_floor:.1f}% while preserving activity."
+                    ),
+                )
+            )
+
+        if product.ph is not None:
+            for low, high in _claim_ph_ranges(features.functional_limitations):
+                if low <= product.ph <= high:
+                    options.append(
+                        DesignAroundOption(
+                            strategy_type="process_condition_shift",
+                            claim_id=result.claim_id,
+                            basis=(
+                                f"Claim {result.claim_id} recites pH {low:g}-{high:g} "
+                                f"and product pH is {product.ph:g}."
+                            ),
+                            proposed_direction=(
+                                f"Evaluate whether the process can operate outside pH "
+                                f"{low:g}-{high:g}, such as below {low:g} or above {high:g}, "
+                                "without losing required enzyme performance."
+                            ),
+                        )
+                    )
+
+        if features.markush_structures:
+            options.append(
+                DesignAroundOption(
+                    strategy_type="claim_scope_substitution",
+                    claim_id=result.claim_id,
+                    basis=(
+                        f"Claim {result.claim_id} contains Markush, variant, or "
+                        "substitution-style scope language."
+                    ),
+                    proposed_direction=(
+                        "Map the product enzyme class and mutation pattern against the "
+                        "listed groups; prioritize alternatives outside the listed classes, "
+                        "variants, or substitution families."
+                    ),
+                )
+            )
+    return options
+
+
+def _claim_ph_ranges(functional_limitations: List[str]) -> List[tuple[float, float]]:
+    ranges: List[tuple[float, float]] = []
+    seen: set[tuple[float, float]] = set()
+    for limitation in functional_limitations:
+        for match in re.finditer(
+            r"\bpH\s*(\d+(?:\.\d+)?)(?:\s*-\s*(\d+(?:\.\d+)?))?",
+            limitation,
+            flags=re.IGNORECASE,
+        ):
+            low = float(match.group(1))
+            high = float(match.group(2)) if match.group(2) else low
+            if low > high:
+                low, high = high, low
+            item = (low, high)
+            if item not in seen:
+                seen.add(item)
+                ranges.append(item)
+    return ranges
 
 
 def _next_actions(grade: RiskGrade) -> List[str]:
