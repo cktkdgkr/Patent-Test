@@ -5,18 +5,25 @@ patent text file or one existing mock patent ID.
 
 ## Product Input
 
-Create a JSON file with product assumptions:
+Create a JSON file with product assumptions and, when available, the product
+enzyme sequence:
 
 ```json
 {
   "product_id": "enzyme_product_alpha",
-  "identity": 88.0,
+  "amino_acid_sequence": "MKTAYIAKQRQISFVKSHFSRQEILDLIC",
+  "reference_sequence_id": "SEQ ID NO:1",
   "ph": 7.0,
   "enzyme_class": "protease",
-  "variant": "A123V",
+  "variant": "A10V",
   "jurisdiction": "US"
 }
 ```
+
+The `identity` field is now an optional override. If a claim references a
+recoverable `SEQ ID NO` sequence, the screening workflow computes percent
+identity, coverage, and mutation/deletion/insertion differences from the
+submitted amino acid sequence.
 
 ## Candidate Patent Input
 
@@ -76,10 +83,11 @@ Run the local UI:
 python scripts\run_ui.py --port 8765
 ```
 
-Then open `http://127.0.0.1:8765`. The UI accepts product assumptions and a
-candidate `.csv` or `.xlsx`, then shows patent-level risk, claim-level detail,
-and design-around candidate directions. The `웹 예시 실행` button uses
-`examples/patent_candidates_web.csv` and enables public-web claim fetching.
+Then open `http://127.0.0.1:8765`. The UI accepts FASTA text, a FASTA file, or a
+direct amino acid sequence along with operating conditions and a candidate
+`.csv` or `.xlsx`. It shows patent-level risk, claim-level detail, sequence
+alignment, and design-around candidate directions. The `서열 예시 실행` button
+uses `examples/patent_candidates_sequence.csv`.
 
 ## Output
 
@@ -88,6 +96,7 @@ The report contains:
 - overall grade and rationale
 - claim-level grades
 - extracted claim features
+- SEQ ID references and sequence alignment when available
 - overlap signals
 - design-around candidate directions
 - recommended next actions

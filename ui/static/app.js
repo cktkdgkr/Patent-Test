@@ -1,5 +1,6 @@
 const form = document.getElementById("screenForm");
 const fileInput = document.getElementById("candidateFile");
+const fastaFileInput = document.getElementById("fastaFile");
 const enableWebFetch = document.getElementById("enableWebFetch");
 const runExample = document.getElementById("runExample");
 const downloadJson = document.getElementById("downloadJson");
@@ -20,7 +21,7 @@ form.addEventListener("submit", async (event) => {
     return;
   }
   await runScreening("/api/screen", {
-    product: productPayload(new FormData(form)),
+    product: await productPayload(new FormData(form)),
     file: {
       name: file.name,
       content_base64: await fileToBase64(file),
@@ -72,16 +73,25 @@ async function runScreening(endpoint, payload) {
   }
 }
 
-function productPayload(formData) {
+async function productPayload(formData) {
+  const fastaFile = fastaFileInput.files[0];
+  const fastaFromFile = fastaFile ? await fastaFile.text() : "";
+  const fastaText = [stringValue(formData, "fasta_text"), fastaFromFile].filter(Boolean).join("\n");
   return {
     product_id: stringValue(formData, "product_id"),
     enzyme_name: stringValue(formData, "enzyme_name"),
+    amino_acid_sequence: stringValue(formData, "amino_acid_sequence"),
+    fasta_text: fastaText || null,
+    reference_sequence_id: stringValue(formData, "reference_sequence_id"),
     identity: numberValue(formData, "identity"),
     ph: numberValue(formData, "ph"),
     temperature_c: numberValue(formData, "temperature_c"),
     substrate: stringValue(formData, "substrate"),
     enzyme_class: stringValue(formData, "enzyme_class"),
     variant: stringValue(formData, "variant"),
+    activity: stringValue(formData, "activity"),
+    organism: stringValue(formData, "organism"),
+    use_case: stringValue(formData, "use_case"),
     jurisdiction: stringValue(formData, "jurisdiction"),
     launch_date: stringValue(formData, "launch_date"),
   };
@@ -181,6 +191,11 @@ function renderDetail(report) {
   });
   const claims = sortedClaims.slice(0, 8).map(renderClaim).join("");
   const options = (item.design_around_options || []).slice(0, 8).map(renderOption).join("");
+  const sequences = sortedClaims
+    .flatMap((claim) => (claim.sequence_comparisons || []).map((comparison) => ({ claim_id: claim.claim_id, ...comparison })))
+    .slice(0, 8)
+    .map(renderSequenceComparison)
+    .join("");
   detailPane.innerHTML = `
     <div class="detail-title">
       <div>
@@ -195,11 +210,38 @@ function renderDetail(report) {
         <div class="claim-list">${claims || '<div class="claim-item">claim 없음</div>'}</div>
       </div>
       <div class="detail-section">
+        <h4>서열 비교</h4>
+        <div class="sequence-list">${sequences || '<div class="option-item">비교 가능한 SEQ ID 없음</div>'}</div>
+      </div>
+      <div class="detail-section wide-detail">
         <h4>회피 후보</h4>
         <div class="option-list">${options || '<div class="option-item">회피 후보 없음</div>'}</div>
       </div>
     </div>
     ${renderFailures(report.failed_candidates || [])}
+  `;
+}
+
+function renderSequenceComparison(comparison) {
+  const identity = typeof comparison.identity === "number" ? `${comparison.identity}%` : "-";
+  const coverage = typeof comparison.coverage === "number" ? `${comparison.coverage}%` : "-";
+  const threshold = typeof comparison.threshold === "number" ? `${comparison.threshold}%` : "-";
+  const changes = [
+    ...(comparison.substitutions || []),
+    ...(comparison.deletions || []),
+    ...(comparison.insertions || []),
+  ].slice(0, 8);
+  return `
+    <div class="option-item">
+      <div class="option-type">Claim ${escapeHtml(String(comparison.claim_id))} · ${escapeHtml(comparison.seq_id || "")}</div>
+      <div class="sequence-metrics">
+        <span>Identity <strong>${identity}</strong></span>
+        <span>Coverage <strong>${coverage}</strong></span>
+        <span>Threshold <strong>${threshold}</strong></span>
+      </div>
+      <div class="option-text">${escapeHtml(comparison.reasoning || comparison.status || "")}</div>
+      <div class="cell-sub">${changes.length ? escapeHtml(changes.join(", ")) : escapeHtml(comparison.status || "")}</div>
+    </div>
   `;
 }
 

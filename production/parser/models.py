@@ -10,3 +10,5 @@ class ClaimFeatures(BaseModel):
     percent_identity: Optional[float] = Field(default=None, description="Minimum percent identity required (e.g., 90.0 for 90%)")
     functional_limitations: List[str] = Field(default_factory=list, description="Extracted functional limitations (e.g., 'active at pH 7')")
     markush_structures: List[str] = Field(default_factory=list, description="Extracted Markush groups or variants")
+    seq_id_references: List[str] = Field(default_factory=list, description="Referenced sequence IDs such as SEQ ID NO:1")
+    mutation_terms: List[str] = Field(default_factory=list, description="Specific mutation, deletion, insertion, or truncation terms")

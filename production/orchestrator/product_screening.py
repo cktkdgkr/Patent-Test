@@ -11,17 +11,31 @@ from core.trace_logger import TraceLogger
 from production.analyzer import RiskAnalyzer, RiskGrade, RiskReport
 from production.parser import ClaimFeatures, LLMExtractor, TreeBuilder
 from production.retriever import retrieve_patent, retrieve_patent_from_file
+from production.sequence import (
+    SequenceAlignmentResult,
+    compare_claim_sequences,
+    extract_mutation_terms,
+    extract_reference_sequences,
+    first_fasta_sequence,
+    normalize_amino_acid_sequence,
+)
 
 
 class ProductSpec(BaseModel):
     product_id: str = Field(description="Internal product or project identifier")
     enzyme_name: Optional[str] = None
+    amino_acid_sequence: Optional[str] = Field(default=None, description="Raw amino acid sequence")
+    fasta_text: Optional[str] = Field(default=None, description="FASTA text containing the product enzyme sequence")
+    reference_sequence_id: Optional[str] = Field(default=None, description="Optional preferred patent SEQ ID for comparison")
     identity: Optional[float] = Field(default=None, description="Sequence identity percentage")
     ph: Optional[float] = Field(default=None, description="Operating pH")
     temperature_c: Optional[float] = None
     substrate: Optional[str] = None
     enzyme_class: Optional[str] = None
     variant: Optional[str] = None
+    activity: Optional[str] = None
+    organism: Optional[str] = None
+    use_case: Optional[str] = None
     jurisdiction: Optional[str] = None
     launch_date: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
@@ -30,7 +44,16 @@ class ProductSpec(BaseModel):
         data = self.model_dump(exclude_none=True)
         data.pop("product_id", None)
         data.pop("metadata", None)
+        data.pop("amino_acid_sequence", None)
+        data.pop("fasta_text", None)
+        data["normalized_sequence_length"] = len(self.normalized_sequence())
+        data["mutation_terms"] = extract_mutation_terms(self.variant or "")
         return data
+
+    def normalized_sequence(self) -> str:
+        if self.fasta_text:
+            return first_fasta_sequence(self.fasta_text)
+        return normalize_amino_acid_sequence(self.amino_acid_sequence)
 
 
 class ClaimScreeningResult(BaseModel):
@@ -42,6 +65,7 @@ class ClaimScreeningResult(BaseModel):
     confidence: float
     reasoning: str
     overlap_signals: List[str] = Field(default_factory=list)
+    sequence_comparisons: List[SequenceAlignmentResult] = Field(default_factory=list)
 
 
 class DesignAroundOption(BaseModel):
@@ -110,6 +134,8 @@ async def screen_product_against_patent_text(
     clean_product = ProductSpec(**Sanitizer.sanitize_payload(product.model_dump()))
     clean_text = Sanitizer.sanitize(raw_text)
     target_spec = clean_product.to_target_spec()
+    product_sequence = clean_product.normalized_sequence()
+    patent_reference_sequences = extract_reference_sequences(clean_text)
 
     claim_nodes = TreeBuilder.parse_claims(clean_text)
     features_list = await asyncio.gather(
@@ -121,7 +147,18 @@ async def screen_product_against_patent_text(
 
     claim_results: List[ClaimScreeningResult] = []
     for node, features in zip(claim_nodes, features_list):
-        report = await RiskAnalyzer.analyze_risk([features], target_spec)
+        sequence_comparisons = compare_claim_sequences(
+            product_sequence=product_sequence,
+            claim_text=node.text,
+            seq_id_references=features.seq_id_references,
+            reference_sequences=patent_reference_sequences,
+            threshold=features.percent_identity,
+        )
+        claim_target_spec = dict(target_spec)
+        computed_identity = _best_sequence_identity(sequence_comparisons)
+        if computed_identity is not None:
+            claim_target_spec["identity"] = computed_identity
+        report = await RiskAnalyzer.analyze_risk([features], claim_target_spec)
         claim_results.append(
             ClaimScreeningResult(
                 claim_id=node.id,
@@ -131,7 +168,8 @@ async def screen_product_against_patent_text(
                 grade=report.grade,
                 confidence=report.confidence,
                 reasoning=report.reasoning,
-                overlap_signals=_overlap_signals(features, target_spec),
+                overlap_signals=_overlap_signals(features, claim_target_spec, sequence_comparisons),
+                sequence_comparisons=sequence_comparisons,
             )
         )
 
@@ -181,7 +219,20 @@ def _overall_report(claim_results: List[ClaimScreeningResult]) -> RiskReport:
     )
 
 
-def _overlap_signals(features: ClaimFeatures, target_spec: Dict[str, Any]) -> List[str]:
+def _best_sequence_identity(sequence_comparisons: List[SequenceAlignmentResult]) -> Optional[float]:
+    identities = [
+        comparison.identity
+        for comparison in sequence_comparisons
+        if comparison.status == "matched" and comparison.identity is not None
+    ]
+    return max(identities) if identities else None
+
+
+def _overlap_signals(
+    features: ClaimFeatures,
+    target_spec: Dict[str, Any],
+    sequence_comparisons: Optional[List[SequenceAlignmentResult]] = None,
+) -> List[str]:
     signals: List[str] = []
     identity = target_spec.get("identity")
     if identity is not None and features.percent_identity is not None:
@@ -191,6 +242,19 @@ def _overlap_signals(features: ClaimFeatures, target_spec: Dict[str, Any]) -> Li
             signals.append("identity_below_claim_threshold")
     if target_spec.get("ph") is not None and any("pH" in item or "ph" in item.lower() for item in features.functional_limitations):
         signals.append("functional_ph_condition_present")
+    for comparison in sequence_comparisons or []:
+        if comparison.status == "matched" and comparison.threshold_met is True:
+            signals.append("sequence_identity_threshold_met")
+        elif comparison.status == "matched" and comparison.threshold_met is False:
+            signals.append("sequence_identity_below_threshold")
+        elif comparison.status == "missing_reference_sequence":
+            signals.append("seq_id_reference_missing_sequence")
+        elif comparison.status == "no_product_sequence":
+            signals.append("product_sequence_missing")
+    target_mutations = {item.upper() for item in target_spec.get("mutation_terms", [])}
+    claim_mutations = {item.upper() for item in features.mutation_terms}
+    if target_mutations and claim_mutations and target_mutations & claim_mutations:
+        signals.append("specific_mutation_overlap")
     if features.markush_structures:
         signals.append("markush_or_variant_scope_present")
     if not signals:
@@ -207,7 +271,27 @@ def _design_around_options(
         if result.grade == RiskGrade.SAFE:
             continue
         features = result.features
-        if product.identity is not None and features.percent_identity is not None:
+        best_sequence = _best_sequence_comparison(result.sequence_comparisons)
+        if best_sequence and best_sequence.threshold is not None and best_sequence.identity is not None:
+            threshold = best_sequence.threshold
+            screening_floor = max(threshold - RiskAnalyzer.CAUTION_BUFFER_PERCENT, 0.0)
+            options.append(
+                DesignAroundOption(
+                    strategy_type="sequence_identity_design_space",
+                    claim_id=result.claim_id,
+                    basis=(
+                        f"Claim {result.claim_id} references {best_sequence.seq_id} with "
+                        f"an identity threshold of {threshold}% and computed product "
+                        f"identity is {best_sequence.identity}%."
+                    ),
+                    proposed_direction=(
+                        f"Explore variants below the claimed {threshold}% identity "
+                        f"threshold; for conservative screening, prioritize variants below "
+                        f"{screening_floor:.1f}% while preserving activity and coverage."
+                    ),
+                )
+            )
+        elif product.identity is not None and features.percent_identity is not None:
             threshold = features.percent_identity
             screening_floor = max(threshold - RiskAnalyzer.CAUTION_BUFFER_PERCENT, 0.0)
             options.append(
@@ -262,6 +346,19 @@ def _design_around_options(
                 )
             )
     return options
+
+
+def _best_sequence_comparison(
+    sequence_comparisons: List[SequenceAlignmentResult],
+) -> Optional[SequenceAlignmentResult]:
+    matched = [
+        comparison
+        for comparison in sequence_comparisons
+        if comparison.status == "matched" and comparison.identity is not None
+    ]
+    if not matched:
+        return None
+    return max(matched, key=lambda item: (item.identity or 0.0, item.coverage or 0.0))
 
 
 def _claim_ph_ranges(functional_limitations: List[str]) -> List[tuple[float, float]]:

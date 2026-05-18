@@ -1,0 +1,4 @@
+candidate_id,publication_number,title,claim_text,keywords
+candidate_sequence_identity,,Sequence identity with recoverable SEQ ID,"1. A variant enzyme having at least 80% identity to SEQ ID NO:1.
+2. The variant enzyme of claim 1, wherein the variant comprises A10V substitution and retains protease activity.
+SEQ ID NO:1: MKTAYIAKQRQISFVKSHFSRQDILDLIC",identity;sequence;mutation

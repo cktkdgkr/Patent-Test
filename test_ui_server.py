@@ -1,7 +1,7 @@
 import base64
 from pathlib import Path
 
-from ui.server import ROOT, run_screening_payload
+from ui.server import ROOT, run_example_payload, run_screening_payload
 
 
 def main():
@@ -30,6 +30,12 @@ def main():
     assert report["screened_count"] == 4
     assert report["failed_candidates"] == []
     assert Path(ROOT / response["report_path"]).exists()
+
+    example = run_example_payload()
+    example_report = example["report"]
+    print(example_report["summary_by_grade"])
+    assert example_report["screened_count"] == 1
+    assert example_report["reports"][0]["claim_results"][0]["sequence_comparisons"][0]["threshold_met"] is True
 
 
 if __name__ == "__main__":

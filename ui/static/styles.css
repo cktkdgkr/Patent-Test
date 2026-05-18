@@ -31,7 +31,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -177,7 +178,8 @@ label span {
   font-size: 12px;
 }
 
-input {
+input,
+textarea {
   width: 100%;
   min-height: 36px;
   border: 1px solid var(--line);
@@ -187,9 +189,21 @@ input {
   color: var(--text);
 }
 
-input:focus {
+textarea {
+  resize: vertical;
+  min-height: 78px;
+  line-height: 1.4;
+  font-family: Consolas, "Segoe UI", monospace;
+}
+
+input:focus,
+textarea:focus {
   border-color: var(--accent);
   outline: 2px solid rgba(15, 118, 110, 0.18);
+}
+
+.wide {
+  grid-column: 1 / -1;
 }
 
 .upload-row {
@@ -423,6 +437,7 @@ tbody tr:last-child td {
 
 .claim-list,
 .option-list,
+.sequence-list,
 .failure-list {
   display: grid;
   gap: 8px;
@@ -457,6 +472,33 @@ tbody tr:last-child td {
   font-size: 12px;
   font-weight: 700;
   margin-bottom: 5px;
+}
+
+.sequence-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.sequence-metrics span {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fbfcfd;
+  padding: 7px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.sequence-metrics strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.wide-detail {
+  grid-column: 1 / -1;
 }
 
 .failure-list {

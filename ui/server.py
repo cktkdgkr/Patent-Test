@@ -43,8 +43,8 @@ def run_example_payload() -> dict[str, Any]:
     product = ProductSpec(**json.loads((ROOT / "examples" / "product_alpha.json").read_text(encoding="utf-8")))
     return _run_screening(
         product=product,
-        candidates_path=ROOT / "examples" / "patent_candidates_web.csv",
-        allow_web_fetch=True,
+        candidates_path=ROOT / "examples" / "patent_candidates_sequence.csv",
+        allow_web_fetch=False,
     )
 
 
@@ -78,12 +78,18 @@ def _product_from_payload(data: dict[str, Any]) -> ProductSpec:
     cleaned = {
         "product_id": str(data.get("product_id") or "ui_product").strip() or "ui_product",
         "enzyme_name": _optional_string(data.get("enzyme_name")),
+        "amino_acid_sequence": _optional_string(data.get("amino_acid_sequence")),
+        "fasta_text": _optional_string(data.get("fasta_text")),
+        "reference_sequence_id": _optional_string(data.get("reference_sequence_id")),
         "identity": _optional_float(data.get("identity"), "identity"),
         "ph": _optional_float(data.get("ph"), "ph"),
         "temperature_c": _optional_float(data.get("temperature_c"), "temperature_c"),
         "substrate": _optional_string(data.get("substrate")),
         "enzyme_class": _optional_string(data.get("enzyme_class")),
         "variant": _optional_string(data.get("variant")),
+        "activity": _optional_string(data.get("activity")),
+        "organism": _optional_string(data.get("organism")),
+        "use_case": _optional_string(data.get("use_case")),
         "jurisdiction": _optional_string(data.get("jurisdiction")),
         "launch_date": _optional_string(data.get("launch_date")),
         "metadata": {"source": "ui"},

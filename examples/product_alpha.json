@@ -1,12 +1,17 @@
 {
   "product_id": "enzyme_product_alpha",
   "enzyme_name": "Alpha protease blend",
+  "amino_acid_sequence": "MKTAYIAKQRQISFVKSHFSRQEILDLIC",
+  "reference_sequence_id": "SEQ ID NO:1",
   "identity": 80.0,
   "ph": 7.0,
   "temperature_c": 45.0,
   "substrate": "protein substrate",
   "enzyme_class": "protease",
-  "variant": "A123V",
+  "variant": "A10V",
+  "activity": "protease activity",
+  "organism": "Bacillus sp.",
+  "use_case": "detergent enzyme formulation",
   "jurisdiction": "US",
   "launch_date": "2026-09-01",
   "metadata": {

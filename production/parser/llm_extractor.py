@@ -8,6 +8,7 @@ from core.access_control import Layer
 from core.sanitizer import Sanitizer
 from core.trace_logger import TraceLogger
 from production.parser.models import ClaimFeatures, ClaimNode
+from production.sequence import extract_mutation_terms, extract_seq_id_references
 
 try:
     from google import genai
@@ -51,6 +52,8 @@ class LLMExtractor:
             Include percent_identity when a minimum identity or homology is stated.
             Include functional limitations such as pH, temperature, activity, substrate,
             or stability conditions. Include Markush or variant groups when present.
+            Include seq_id_references like SEQ ID NO:1, and mutation_terms such as
+            A123V, deletions, insertions, substitutions, or truncations.
 
             Claim text:
             """
@@ -106,6 +109,8 @@ class LLMExtractor:
             percent_identity=float(identity_match.group(1)) if identity_match else None,
             functional_limitations=functional_limitations,
             markush_structures=markush_structures,
+            seq_id_references=extract_seq_id_references(text),
+            mutation_terms=extract_mutation_terms(text),
         )
 
     @staticmethod

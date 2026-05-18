@@ -9,6 +9,7 @@ from core.sanitizer import Sanitizer
 from core.trace_logger import TraceLogger
 from production.analyzer.models import RiskGrade, RiskReport
 from production.parser.models import ClaimFeatures
+from production.sequence import extract_mutation_terms
 
 try:
     from google import genai
@@ -121,6 +122,32 @@ class RiskAnalyzer:
                 reasoning=(
                     f"Target identity {target_identity} is outside all detected identity "
                     "thresholds and outside the caution buffer."
+                ),
+            )
+        target_mutations = set(extract_mutation_terms(str(target_spec.get("variant") or "")))
+        claim_mutations = {
+            term
+            for feature in features
+            for term in feature.mutation_terms
+            if re.fullmatch(r"[A-Z]\d+[A-Z]", term, flags=re.IGNORECASE)
+        }
+        if target_mutations and claim_mutations and {
+            item.upper() for item in target_mutations
+        } & {item.upper() for item in claim_mutations}:
+            return RiskReport(
+                grade=RiskGrade.HIGH,
+                confidence=0.78,
+                reasoning="Product variant contains a specific mutation recited by the claim.",
+            )
+
+        if identity_thresholds:
+            return RiskReport(
+                grade=RiskGrade.MEDIUM,
+                confidence=0.64,
+                reasoning=(
+                    "Detected a sequence identity threshold, but no comparable product "
+                    "identity could be computed from the available product sequence and "
+                    "patent SEQ ID reference."
                 ),
             )
 
