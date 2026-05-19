@@ -16,6 +16,7 @@ TESTS = [
     "test_excel_batch_screening.py",
     "test_sequence_analysis.py",
     "test_sequence_product_screening.py",
+    "test_sequence_web_retriever.py",
     "test_web_fetcher.py",
     "test_ui_server.py",
 ]

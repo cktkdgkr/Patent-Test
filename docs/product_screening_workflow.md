@@ -25,6 +25,19 @@ recoverable `SEQ ID NO` sequence, the screening workflow computes percent
 identity, coverage, and mutation/deletion/insertion differences from the
 submitted amino acid sequence.
 
+When public web fetching is enabled, missing `SEQ ID NO` reference sequences are
+resolved from public sequence sources when possible:
+
+- USPTO PSIPS (`seqdata.uspto.gov`) for lengthy issued/published US sequence
+  listings.
+- NCBI Protein E-utilities as a secondary patent-sequence lookup path.
+- Google Patents full-text pages as a convenience fallback when sequence text is
+  embedded in the page.
+
+Fetched sequences are cached under `data/sequence_cache/web/` for local reuse.
+If no source can provide the sequence, the result remains
+`missing_reference_sequence` rather than being treated as safe.
+
 ## Candidate Patent Input
 
 For the local-upload path, save candidate claims as a text file under the repo.
@@ -63,9 +76,10 @@ are reported as failed candidates until an external patent database connector is
 configured.
 
 For a quick public-web preview, pass `--enable-web-fetch`. The current preview
-connector reads claims from Google Patents and writes fetched claim text under
-`data/patent_cache/web/` for later local reuse. Use this as a convenience
-connector, not as the authoritative legal record.
+connector reads claims from Google Patents, writes fetched claim text under
+`data/patent_cache/web/`, and attempts to resolve missing `SEQ ID NO` reference
+sequences from public web sequence sources. Use this as a convenience connector,
+not as the authoritative legal record.
 
 ```powershell
 python scripts\screen_excel.py --product examples\product_alpha.json --excel examples\patent_candidates.csv --output build_log\batch_screening_report.json --summary-csv build_log\batch_screening_summary.csv

@@ -28,7 +28,11 @@ async def _run(args: argparse.Namespace) -> int:
     product = ProductSpec(**json.loads(product_path.read_text(encoding="utf-8")))
 
     if args.patent_id:
-        report = await screen_product_against_patent_id(product, args.patent_id)
+        report = await screen_product_against_patent_id(
+            product,
+            args.patent_id,
+            allow_sequence_web_fetch=args.enable_sequence_web_fetch,
+        )
     else:
         patent_file = Path(args.patent_file)
         if not patent_file.is_absolute():
@@ -37,6 +41,7 @@ async def _run(args: argparse.Namespace) -> int:
             product,
             str(patent_file),
             patent_id=args.candidate_id,
+            allow_sequence_web_fetch=args.enable_sequence_web_fetch,
         )
 
     output_path = Path(args.output)
@@ -58,6 +63,11 @@ def main() -> int:
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--patent-file", help="Path to candidate patent text under the repo")
     source.add_argument("--patent-id", help="Existing mock patent ID from data/mock_patents")
+    parser.add_argument(
+        "--enable-sequence-web-fetch",
+        action="store_true",
+        help="Fetch missing SEQ ID NO reference sequences from public web sequence sources",
+    )
     parser.add_argument("--candidate-id", help="Optional display ID for --patent-file")
     parser.add_argument(
         "--output",

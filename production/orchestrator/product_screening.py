@@ -17,6 +17,7 @@ from production.sequence import (
     extract_mutation_terms,
     extract_reference_sequences,
     first_fasta_sequence,
+    fetch_sequence_references_for_patent,
     normalize_amino_acid_sequence,
 )
 
@@ -84,6 +85,7 @@ class ProductPatentScreeningReport(BaseModel):
     overall_confidence: float
     overall_reasoning: str
     claim_results: List[ClaimScreeningResult]
+    sequence_reference_sources: Dict[str, str] = Field(default_factory=dict)
     design_around_options: List[DesignAroundOption] = Field(default_factory=list)
     recommended_next_actions: List[str]
     run_id: str
@@ -93,6 +95,7 @@ async def screen_product_against_patent_id(
     product: ProductSpec,
     patent_id: str,
     run_id: Optional[str] = None,
+    allow_sequence_web_fetch: bool = False,
 ) -> ProductPatentScreeningReport:
     run_id = run_id or TraceLogger.start_run("product_screening")
     raw_text = retrieve_patent(patent_id, run_id=run_id)
@@ -102,6 +105,7 @@ async def screen_product_against_patent_id(
         source="mock_patents",
         raw_text=raw_text,
         run_id=run_id,
+        allow_sequence_web_fetch=allow_sequence_web_fetch,
     )
 
 
@@ -110,6 +114,7 @@ async def screen_product_against_patent_file(
     file_path: str,
     patent_id: Optional[str] = None,
     run_id: Optional[str] = None,
+    allow_sequence_web_fetch: bool = False,
 ) -> ProductPatentScreeningReport:
     run_id = run_id or TraceLogger.start_run("product_screening")
     candidate_id = patent_id or Path(file_path).stem
@@ -120,6 +125,7 @@ async def screen_product_against_patent_file(
         source=file_path,
         raw_text=raw_text,
         run_id=run_id,
+        allow_sequence_web_fetch=allow_sequence_web_fetch,
     )
 
 
@@ -129,6 +135,7 @@ async def screen_product_against_patent_text(
     source: str,
     raw_text: str,
     run_id: Optional[str] = None,
+    allow_sequence_web_fetch: bool = False,
 ) -> ProductPatentScreeningReport:
     run_id = run_id or TraceLogger.start_run("product_screening")
     clean_product = ProductSpec(**Sanitizer.sanitize_payload(product.model_dump()))
@@ -136,6 +143,10 @@ async def screen_product_against_patent_text(
     target_spec = clean_product.to_target_spec()
     product_sequence = clean_product.normalized_sequence()
     patent_reference_sequences = extract_reference_sequences(clean_text)
+    sequence_reference_sources = {
+        seq_id: "patent_text"
+        for seq_id in patent_reference_sequences
+    }
 
     claim_nodes = TreeBuilder.parse_claims(clean_text)
     features_list = await asyncio.gather(
@@ -144,6 +155,12 @@ async def screen_product_against_patent_text(
             for node in claim_nodes
         ]
     )
+    if allow_sequence_web_fetch:
+        missing_seq_refs = _missing_sequence_references(features_list, patent_reference_sequences)
+        if missing_seq_refs:
+            web_sequences = fetch_sequence_references_for_patent(patent_id, missing_seq_refs)
+            patent_reference_sequences.update(web_sequences.sequences)
+            sequence_reference_sources.update(web_sequences.sources)
 
     claim_results: List[ClaimScreeningResult] = []
     for node, features in zip(claim_nodes, features_list):
@@ -182,6 +199,7 @@ async def screen_product_against_patent_text(
         overall_confidence=overall_report.confidence,
         overall_reasoning=overall_report.reasoning,
         claim_results=claim_results,
+        sequence_reference_sources=sequence_reference_sources,
         design_around_options=_design_around_options(clean_product, claim_results),
         recommended_next_actions=_next_actions(overall_report.grade),
         run_id=run_id,
@@ -196,6 +214,18 @@ async def screen_product_against_patent_text(
         layer=Layer.PRODUCTION,
     )
     return screening_report
+
+
+def _missing_sequence_references(
+    features_list: List[ClaimFeatures],
+    patent_reference_sequences: Dict[str, str],
+) -> List[str]:
+    refs: List[str] = []
+    for features in features_list:
+        for ref in features.seq_id_references:
+            if ref not in patent_reference_sequences and ref not in refs:
+                refs.append(ref)
+    return refs
 
 
 def _overall_report(claim_results: List[ClaimScreeningResult]) -> RiskReport:

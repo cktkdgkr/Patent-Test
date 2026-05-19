@@ -5,6 +5,33 @@ from production.sequence.models import SequenceAlignmentResult
 
 AMINO_ACID_ALPHABET = set("ABCDEFGHIKLMNPQRSTVWXYZUO")
 MAX_REPORTED_CHANGES = 24
+THREE_LETTER_AMINO_ACIDS = {
+    "ALA": "A",
+    "ARG": "R",
+    "ASN": "N",
+    "ASP": "D",
+    "CYS": "C",
+    "GLN": "Q",
+    "GLU": "E",
+    "GLY": "G",
+    "HIS": "H",
+    "ILE": "I",
+    "LEU": "L",
+    "LYS": "K",
+    "MET": "M",
+    "PHE": "F",
+    "PRO": "P",
+    "SER": "S",
+    "THR": "T",
+    "TRP": "W",
+    "TYR": "Y",
+    "VAL": "V",
+    "ASX": "B",
+    "GLX": "Z",
+    "XAA": "X",
+    "SEC": "U",
+    "PYL": "O",
+}
 
 
 def normalize_amino_acid_sequence(value: Optional[str]) -> str:
@@ -52,9 +79,26 @@ def extract_mutation_terms(text: str) -> List[str]:
 
 def extract_reference_sequences(text: str) -> Dict[str, str]:
     sequences: Dict[str, str] = {}
+    sequences.update(extract_st25_sequence_listing_entries(text))
     sequences.update(_extract_fasta_seq_ids(text))
     sequences.update(_extract_inline_seq_ids(text))
     return sequences
+
+
+def extract_st25_sequence_listing_entries(text: str) -> Dict[str, str]:
+    sequences: Dict[str, str] = {}
+    for block in _sequence_listing_blocks(text):
+        seq_id = _block_seq_id(block)
+        if not seq_id:
+            continue
+        sequence = _sequence_from_block(block)
+        if len(sequence) >= 4:
+            sequences[seq_id] = sequence
+    return sequences
+
+
+def sequence_listing_content_to_sequence(text: str) -> str:
+    return _sequence_from_block(text)
 
 
 def compare_claim_sequences(
@@ -197,6 +241,69 @@ def _extract_inline_seq_ids(text: str) -> Dict[str, str]:
         if len(seq) >= 10:
             sequences[f"SEQ ID NO:{int(match.group('num'))}"] = seq
     return sequences
+
+
+def _sequence_listing_blocks(text: str) -> List[str]:
+    matches = list(
+        re.finditer(
+            r"(?:SEQ\s+ID\s+NO|<210>)\s*[:.]?\s*(?:NO:?\s*)?\d+",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+    blocks: List[str] = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        blocks.append(text[match.start() : end])
+    return blocks
+
+
+def _block_seq_id(block: str) -> Optional[str]:
+    match = re.search(r"\bSEQ\s+ID\s+NO[:.]?\s*(\d+)\b", block, flags=re.IGNORECASE)
+    if not match:
+        match = re.search(r"<210>\s*(\d+)", block, flags=re.IGNORECASE)
+    return f"SEQ ID NO:{int(match.group(1))}" if match else None
+
+
+def _sequence_from_block(block: str) -> str:
+    if re.search(r"\bTYPE\s*:\s*PRT\b", block, flags=re.IGNORECASE):
+        return _three_letter_sequence_to_one_letter(block)
+    if re.search(r"<212>\s*PRT\b", block, flags=re.IGNORECASE):
+        return _st25_400_sequence_to_one_letter(block)
+    inline = _inline_sequence_after_marker(block)
+    if inline:
+        return inline
+    return ""
+
+
+def _inline_sequence_after_marker(block: str) -> str:
+    match = re.search(
+        r"\bSEQ\s+ID\s+NO[:.]?\s*\d+\s*[:=]\s*(?P<seq>(?:[A-Z]{5,}\s*){1,80})",
+        block,
+        flags=re.IGNORECASE,
+    )
+    return normalize_amino_acid_sequence(match.group("seq")) if match else ""
+
+
+def _st25_400_sequence_to_one_letter(block: str) -> str:
+    match = re.search(r"<400>\s*SEQUENCE:\s*\d+(?P<body>.*)", block, flags=re.IGNORECASE | re.DOTALL)
+    return _sequence_lines_to_one_letter(match.group("body")) if match else ""
+
+
+def _three_letter_sequence_to_one_letter(block: str) -> str:
+    match = re.search(r"\bSEQUENCE\s*:\s*\d+(?P<body>.*)", block, flags=re.IGNORECASE | re.DOTALL)
+    body = match.group("body") if match else block
+    return _sequence_lines_to_one_letter(body)
+
+
+def _sequence_lines_to_one_letter(text: str) -> str:
+    residues: List[str] = []
+    for token in re.findall(r"[A-Za-z]{1,3}", text.upper()):
+        if len(token) == 1 and token in AMINO_ACID_ALPHABET:
+            residues.append(token)
+        elif token in THREE_LETTER_AMINO_ACIDS:
+            residues.append(THREE_LETTER_AMINO_ACIDS[token])
+    return "".join(residues)
 
 
 def _needleman_wunsch(target: str, reference: str) -> tuple[str, str]:

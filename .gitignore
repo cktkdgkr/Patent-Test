@@ -12,3 +12,4 @@ build_log/test_patent_candidates.xlsx
 build_log/ui_uploads/
 build_log/ui_reports/
 data/patent_cache/web/
+data/sequence_cache/web/
