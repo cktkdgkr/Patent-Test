@@ -28,15 +28,24 @@ submitted amino acid sequence.
 When public web fetching is enabled, missing `SEQ ID NO` reference sequences are
 resolved from public sequence sources when possible:
 
+- WIPO published PCT sequence-listing directories for WO publications, including
+  linked ZIP/XML/TXT listing documents.
+- ST.26 XML sequence listings, including XML files packaged inside ZIP archives.
+- EPO public patent-document pages as a best-effort route for sequence-listing
+  document links.
 - USPTO PSIPS (`seqdata.uspto.gov`) for lengthy issued/published US sequence
   listings.
-- NCBI Protein E-utilities as a secondary patent-sequence lookup path.
-- Google Patents full-text pages as a convenience fallback when sequence text is
-  embedded in the page.
+- NCBI Protein E-utilities as a secondary patent-sequence lookup path for US,
+  WO, EP, and other country-code patent identifiers when records are indexed.
+- Google Patents full-text pages and linked sequence documents as a convenience
+  fallback when sequence text is embedded in the page.
 
 Fetched sequences are cached under `data/sequence_cache/web/` for local reuse.
 If no source can provide the sequence, the result remains
-`missing_reference_sequence` rather than being treated as safe.
+`missing_reference_sequence` rather than being treated as safe. Public coverage
+depends on what each patent office or database exposes without credentials; for
+restricted office systems, the UI should show the missing sequence instead of
+guessing.
 
 ## Candidate Patent Input
 

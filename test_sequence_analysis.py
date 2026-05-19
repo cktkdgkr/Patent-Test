@@ -3,6 +3,7 @@ from production.sequence import (
     extract_mutation_terms,
     extract_reference_sequences,
     extract_seq_id_references,
+    extract_st26_sequence_listing_entries,
     normalize_amino_acid_sequence,
 )
 
@@ -37,6 +38,37 @@ def main():
 
     mutations = extract_mutation_terms("wherein the variant comprises A10V substitution")
     assert "A10V" in mutations
+
+    st26_xml = """<?xml version="1.0" encoding="UTF-8"?>
+    <ST26SequenceListing>
+      <SequenceData sequenceIDNumber="7">
+        <INSDSeq>
+          <INSDSeq_moltype>AA</INSDSeq_moltype>
+          <INSDSeq_sequence>mktayiakqrqisfvk</INSDSeq_sequence>
+        </INSDSeq>
+      </SequenceData>
+      <SequenceData sequenceIDNumber="8">
+        <INSDSeq>
+          <INSDSeq_moltype>DNA</INSDSeq_moltype>
+          <INSDSeq_sequence>atggccattgtaatgggc</INSDSeq_sequence>
+          <INSDSeq_feature-table>
+            <INSDFeature>
+              <INSDFeature_quals>
+                <INSDQualifier>
+                  <INSDQualifier_name>translation</INSDQualifier_name>
+                  <INSDQualifier_value>MAIVMG</INSDQualifier_value>
+                </INSDQualifier>
+              </INSDFeature_quals>
+            </INSDFeature>
+          </INSDSeq_feature-table>
+        </INSDSeq>
+      </SequenceData>
+    </ST26SequenceListing>
+    """
+    st26_sequences = extract_st26_sequence_listing_entries(st26_xml)
+    print(st26_sequences)
+    assert st26_sequences["SEQ ID NO:7"] == "MKTAYIAKQRQISFVK"
+    assert st26_sequences["SEQ ID NO:8"] == "MAIVMG"
 
 
 if __name__ == "__main__":

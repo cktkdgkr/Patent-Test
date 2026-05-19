@@ -1,5 +1,6 @@
 import re
 from typing import Dict, Iterable, List, Optional
+from xml.etree import ElementTree
 
 from production.sequence.models import SequenceAlignmentResult
 
@@ -79,9 +80,25 @@ def extract_mutation_terms(text: str) -> List[str]:
 
 def extract_reference_sequences(text: str) -> Dict[str, str]:
     sequences: Dict[str, str] = {}
+    sequences.update(extract_st26_sequence_listing_entries(text))
     sequences.update(extract_st25_sequence_listing_entries(text))
     sequences.update(_extract_fasta_seq_ids(text))
     sequences.update(_extract_inline_seq_ids(text))
+    return sequences
+
+
+def extract_st26_sequence_listing_entries(text: str) -> Dict[str, str]:
+    sequences: Dict[str, str] = {}
+    for root in _st26_xml_roots(text):
+        for sequence_data in root.iter():
+            if _xml_local_name(sequence_data.tag) != "SequenceData":
+                continue
+            seq_id = _st26_sequence_id(sequence_data)
+            if not seq_id:
+                continue
+            sequence = _st26_amino_acid_sequence(sequence_data)
+            if len(sequence) >= 4:
+                sequences[seq_id] = sequence
     return sequences
 
 
@@ -241,6 +258,99 @@ def _extract_inline_seq_ids(text: str) -> Dict[str, str]:
         if len(seq) >= 10:
             sequences[f"SEQ ID NO:{int(match.group('num'))}"] = seq
     return sequences
+
+
+def _st26_xml_roots(text: str) -> List[ElementTree.Element]:
+    roots: List[ElementTree.Element] = []
+    for candidate in _xml_document_candidates(text):
+        try:
+            roots.append(ElementTree.fromstring(candidate))
+        except ElementTree.ParseError:
+            continue
+    return roots
+
+
+def _xml_document_candidates(text: str) -> List[str]:
+    stripped = text.strip()
+    candidates = [stripped] if stripped else []
+    for root_name in ("ST26SequenceListing", "SequenceListing"):
+        match = re.search(rf"<(?:[A-Za-z_][\w.-]*:)?{root_name}\b", text)
+        if not match:
+            continue
+        close_matches = list(re.finditer(rf"</(?:[A-Za-z_][\w.-]*:)?{root_name}>", text))
+        if close_matches:
+            candidates.append(text[match.start() : close_matches[-1].end()])
+    deduped: List[str] = []
+    for candidate in candidates:
+        if candidate and candidate not in deduped:
+            deduped.append(candidate)
+    return deduped
+
+
+def _st26_sequence_id(sequence_data: ElementTree.Element) -> Optional[str]:
+    number = _xml_attr(sequence_data, "sequenceIDNumber")
+    if not number:
+        number = _xml_child_text(sequence_data, "INSDSeq_sequenceID")
+    if not number:
+        return None
+    match = re.search(r"\d+", number)
+    return f"SEQ ID NO:{int(match.group(0))}" if match else None
+
+
+def _st26_amino_acid_sequence(sequence_data: ElementTree.Element) -> str:
+    sequence = _xml_child_text(sequence_data, "INSDSeq_sequence")
+    moltype = _xml_child_text(sequence_data, "INSDSeq_moltype")
+    if sequence and _st26_is_amino_acid_moltype(moltype, sequence):
+        return normalize_amino_acid_sequence(sequence)
+
+    translation = _st26_translation_qualifier(sequence_data)
+    if translation:
+        return normalize_amino_acid_sequence(translation)
+    return ""
+
+
+def _st26_is_amino_acid_moltype(moltype: str, sequence: str) -> bool:
+    normalized_moltype = " ".join(moltype.upper().replace("_", " ").split())
+    if normalized_moltype in {"AA", "PRT", "PROTEIN", "AMINO ACID", "PEPTIDE"}:
+        return True
+    if any(token in normalized_moltype for token in ("DNA", "RNA", "NUCLEOTIDE")):
+        return False
+    normalized_sequence = normalize_amino_acid_sequence(sequence)
+    nucleotide_letters = set("ACGTUNRYSWKMBDHV")
+    return bool(normalized_sequence) and any(char not in nucleotide_letters for char in normalized_sequence)
+
+
+def _st26_translation_qualifier(sequence_data: ElementTree.Element) -> str:
+    for qualifier in sequence_data.iter():
+        if _xml_local_name(qualifier.tag) != "INSDQualifier":
+            continue
+        name = _xml_child_text(qualifier, "INSDQualifier_name")
+        if name.strip().lower() != "translation":
+            continue
+        value = _xml_child_text(qualifier, "INSDQualifier_value")
+        if value:
+            return value
+    return ""
+
+
+def _xml_child_text(parent: ElementTree.Element, local_name: str) -> str:
+    for node in parent.iter():
+        if node is parent:
+            continue
+        if _xml_local_name(node.tag) == local_name and node.text:
+            return node.text.strip()
+    return ""
+
+
+def _xml_attr(node: ElementTree.Element, local_name: str) -> str:
+    for key, value in node.attrib.items():
+        if _xml_local_name(key) == local_name:
+            return str(value).strip()
+    return ""
+
+
+def _xml_local_name(name: str) -> str:
+    return name.rsplit("}", 1)[-1].split(":", 1)[-1]
 
 
 def _sequence_listing_blocks(text: str) -> List[str]:
