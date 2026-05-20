@@ -90,6 +90,60 @@ def test_reader_accepts_korean_country_column_header() -> None:
     assert by_id["row_2"].combined_identifier() == "US16123456"
 
 
+def test_reader_accepts_korean_patent_number_column_header() -> None:
+    """Regression: a Korean column header `특허 출원 번호` combined with
+    13-digit KR publication numbers should NOT raise the sanitizer's
+    DRIVER_LICENSE_KR or BANK_ACCOUNT_LIKE patterns.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "candidates.csv"
+        with path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(["candidate_id", "특허 출원 번호", "국가코드"])
+            writer.writerow(["row_1", "2025-10536859", "CN"])
+            writer.writerow(["row_2", "10-2025-7013439", "KR"])
+            writer.writerow(["row_3", "10-2024-0087254", "KR"])
+            writer.writerow(["row_4", "14/323932", "US"])
+            writer.writerow(["row_5", "2016-247708", "JP"])
+        candidates = read_patent_candidates(str(path))
+
+    by_id = {c.candidate_id: c for c in candidates}
+    assert by_id["row_1"].application_number == "2025-10536859"
+    assert by_id["row_1"].combined_identifier() == "CN202510536859"
+    assert by_id["row_2"].application_number == "10-2025-7013439"
+    assert by_id["row_2"].combined_identifier() == "KR1020257013439"
+    assert by_id["row_4"].combined_identifier() == "US14323932"
+    assert by_id["row_5"].combined_identifier() == "JP2016247708"
+
+
+def test_sanitizer_no_longer_flags_patent_numbers() -> None:
+    """Direct sanitizer-level regression: real patent identifiers must not
+    trigger DRIVER_LICENSE_KR / BANK_ACCOUNT_LIKE while a true KR driver
+    license format still does.
+    """
+    from core.sanitizer import DataProtectionViolation, Sanitizer
+
+    safe_values = [
+        "2025-10536859",        # CN application
+        "10-2025-7013439",      # KR application
+        "10-2024-0087254",      # KR application
+        "10-2024-0194689",      # KR application
+        "14/323932",            # US application
+        "2016-247708",          # JP application
+        "KR1020257013439",      # combined identifier
+        "CN202510536859",       # combined identifier
+    ]
+    for value in safe_values:
+        Sanitizer.sanitize(value)  # would raise if blocked
+
+    # A real Korean DL still gets blocked
+    try:
+        Sanitizer.sanitize("12-34-567890-12")
+        raise AssertionError("Korean driver license must still be blocked")
+    except DataProtectionViolation:
+        pass
+
+
 def main() -> int:
     test_combined_identifier_prepends_country_code()
     test_combined_identifier_keeps_prefixed_publication_number_intact()
@@ -98,6 +152,8 @@ def main() -> int:
     test_combined_identifier_returns_none_when_numbers_missing()
     test_reader_accepts_country_code_column()
     test_reader_accepts_korean_country_column_header()
+    test_reader_accepts_korean_patent_number_column_header()
+    test_sanitizer_no_longer_flags_patent_numbers()
     print("country code ingestion: ok")
     return 0
 

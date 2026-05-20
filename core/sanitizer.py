@@ -19,9 +19,17 @@ class Sanitizer:
     PII_PATTERNS = {
         "SSN_KR": r"\b\d{6}[-]*[1-4]\d{6}\b",
         "PASSPORT_LIKE": r"\b(?:M|S|R|D)\d{8}\b",
-        "DRIVER_LICENSE_KR": r"\b\d{2}[- ]?\d{2}[- ]?\d{6}[- ]?\d{2}\b",
+        # Korean driver licenses use the 4-segment "XX-XX-XXXXXX-XX" form with
+        # required dashes. Optional dashes would collide with patent identifier
+        # formats such as Chinese ``2025-10536859`` (4-8) and Korean
+        # ``10-2025-7013439`` (2-4-7), so the separators are required.
+        "DRIVER_LICENSE_KR": r"\b\d{2}-\d{2}-\d{6}-\d{2}\b",
         "CREDIT_CARD": r"\b(?:\d[ -]*?){13,16}\b",
-        "BANK_ACCOUNT_LIKE": r"\b\d{2,6}[- ]\d{2,6}[- ]\d{4,8}\b",
+        # Korean bank accounts begin with a 3+ digit bank/branch code; raising
+        # the first-segment minimum to 3 keeps real account formats matched
+        # while excluding patent identifier formats such as
+        # ``10-2025-7013439`` (2-4-7) or ``KR10-2024-0087254``.
+        "BANK_ACCOUNT_LIKE": r"\b\d{3,6}[- ]\d{2,6}[- ]\d{4,8}\b",
         "EMAIL": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,7}\b",
         "PHONE_KR": r"\b01[016789][-.\s]?\d{3,4}[-.\s]?\d{4}\b",
         "US_SSN": r"\b\d{3}-\d{2}-\d{4}\b",
