@@ -32,6 +32,14 @@ the patent reference position, whether the product residue matches the claimed
 residue, and a confidence label based on alignment identity, coverage, gaps, and
 whether the recovered reference residue agrees with the claim wording.
 
+The alignment backend can be set to `auto`, `needleman_wunsch`, `blastp`, or
+`mmseqs`. In `auto` mode the workflow tries local BLASTP first, then local
+MMseqs2, and falls back to the built-in Needleman-Wunsch global aligner when
+external executables are unavailable. BLASTP/MMseqs2 hits are treated as local
+alignments: their local identity is shown for context, while the risk workflow
+uses a full-length-normalized identity and reference coverage to avoid
+overstating short high-identity matches.
+
 When public web fetching is enabled, missing `SEQ ID NO` reference sequences are
 resolved from public sequence sources when possible:
 

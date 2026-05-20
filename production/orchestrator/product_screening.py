@@ -28,6 +28,7 @@ class ProductSpec(BaseModel):
     amino_acid_sequence: Optional[str] = Field(default=None, description="Raw amino acid sequence")
     fasta_text: Optional[str] = Field(default=None, description="FASTA text containing the product enzyme sequence")
     reference_sequence_id: Optional[str] = Field(default=None, description="Optional preferred patent SEQ ID for comparison")
+    alignment_backend: str = Field(default="auto", description="auto, needleman_wunsch, blastp, or mmseqs")
     identity: Optional[float] = Field(default=None, description="Sequence identity percentage")
     ph: Optional[float] = Field(default=None, description="Operating pH")
     temperature_c: Optional[float] = None
@@ -170,6 +171,7 @@ async def screen_product_against_patent_text(
             seq_id_references=features.seq_id_references,
             reference_sequences=patent_reference_sequences,
             threshold=features.percent_identity,
+            alignment_backend=clean_product.alignment_backend,
         )
         claim_target_spec = dict(target_spec)
         computed_identity = _best_sequence_identity(sequence_comparisons)
@@ -313,6 +315,8 @@ def _overlap_signals(
                 signals.append("mapped_residue_claim_mismatch")
             elif mapping.status == "target_gap":
                 signals.append("mapped_residue_position_gap")
+            elif mapping.status == "reference_position_not_aligned":
+                signals.append("mapped_residue_reference_position_not_aligned")
             elif mapping.status == "reference_position_out_of_range":
                 signals.append("mapped_residue_reference_position_out_of_range")
             if mapping.confidence == "low":

@@ -24,7 +24,7 @@ class ResiduePositionMapping(BaseModel):
     product_residue: Optional[str] = None
     claimed_residue: Optional[str] = None
     claim_match: Optional[bool] = None
-    status: str = Field(description="mapped, target_gap, or reference_position_out_of_range")
+    status: str = Field(description="mapped, target_gap, reference_position_not_aligned, or reference_position_out_of_range")
     confidence: str = Field(description="high, medium, or low")
     reasoning: str
 
@@ -33,6 +33,7 @@ class SequenceAlignmentResult(BaseModel):
     seq_id: str
     status: str = Field(description="matched, missing_reference_sequence, no_product_sequence, or no_seq_id_reference")
     identity: Optional[float] = None
+    local_identity: Optional[float] = Field(default=None, description="Local backend percent identity when BLAST/MMseqs2 is used")
     coverage: Optional[float] = None
     target_length: int = 0
     reference_length: int = 0
@@ -41,6 +42,9 @@ class SequenceAlignmentResult(BaseModel):
     deletions: List[str] = Field(default_factory=list)
     insertions: List[str] = Field(default_factory=list)
     residue_position_mappings: List[ResiduePositionMapping] = Field(default_factory=list)
+    alignment_backend: str = "needleman_wunsch"
+    alignment_scope: str = Field(default="global", description="global or local")
+    alignment_notes: List[str] = Field(default_factory=list)
     threshold: Optional[float] = None
     threshold_met: Optional[bool] = None
     reasoning: str

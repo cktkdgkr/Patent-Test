@@ -47,6 +47,15 @@
                 <span>Reference SEQ ID</span>
                 <input name="reference_sequence_id" value="SEQ ID NO:1" />
               </label>
+              <label>
+                <span>Alignment backend</span>
+                <select name="alignment_backend">
+                  <option value="auto" selected>Auto</option>
+                  <option value="needleman_wunsch">Needleman-Wunsch</option>
+                  <option value="blastp">BLASTP</option>
+                  <option value="mmseqs">MMseqs2</option>
+                </select>
+              </label>
               <label class="wide">
                 <span>Amino acid sequence</span>
                 <textarea name="amino_acid_sequence" rows="3" spellcheck="false">MKTAYIAKQRQISFVKSHFSRQEILDLIC</textarea>

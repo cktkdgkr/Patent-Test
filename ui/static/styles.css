@@ -32,6 +32,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -179,6 +180,7 @@ label span {
 }
 
 input,
+select,
 textarea {
   width: 100%;
   min-height: 36px;
@@ -197,6 +199,7 @@ textarea {
 }
 
 input:focus,
+select:focus,
 textarea:focus {
   border-color: var(--accent);
   outline: 2px solid rgba(15, 118, 110, 0.18);

@@ -83,6 +83,7 @@ async function productPayload(formData) {
     amino_acid_sequence: stringValue(formData, "amino_acid_sequence"),
     fasta_text: fastaText || null,
     reference_sequence_id: stringValue(formData, "reference_sequence_id"),
+    alignment_backend: stringValue(formData, "alignment_backend") || "auto",
     identity: numberValue(formData, "identity"),
     ph: numberValue(formData, "ph"),
     temperature_c: numberValue(formData, "temperature_c"),
@@ -241,6 +242,7 @@ function renderSequenceComparison(comparison) {
         <span>Threshold <strong>${threshold}</strong></span>
       </div>
       <div class="option-text">${escapeHtml(comparison.reasoning || comparison.status || "")}</div>
+      <div class="cell-sub">${escapeHtml(`${comparison.alignment_backend || "alignment"} · ${comparison.alignment_scope || ""}`)}</div>
       <div class="cell-sub">${changes.length ? escapeHtml(changes.join(", ")) : escapeHtml(comparison.status || "")}</div>
       ${mappings ? `<div class="cell-sub">${mappings}</div>` : ""}
     </div>
@@ -300,7 +302,7 @@ function setStatus(message, mode) {
 }
 
 function setControlsDisabled(disabled) {
-  form.querySelectorAll("button, input").forEach((node) => {
+  form.querySelectorAll("button, input, select, textarea").forEach((node) => {
     node.disabled = disabled;
   });
   runExample.disabled = disabled;

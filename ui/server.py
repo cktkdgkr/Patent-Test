@@ -81,6 +81,7 @@ def _product_from_payload(data: dict[str, Any]) -> ProductSpec:
         "amino_acid_sequence": _optional_string(data.get("amino_acid_sequence")),
         "fasta_text": _optional_string(data.get("fasta_text")),
         "reference_sequence_id": _optional_string(data.get("reference_sequence_id")),
+        "alignment_backend": _alignment_backend(data.get("alignment_backend")),
         "identity": _optional_float(data.get("identity"), "identity"),
         "ph": _optional_float(data.get("ph"), "ph"),
         "temperature_c": _optional_float(data.get("temperature_c"), "temperature_c"),
@@ -135,6 +136,13 @@ def _optional_float(value: Any, field_name: str) -> float | None:
         return float(value)
     except (TypeError, ValueError) as exc:
         raise UIRequestError(f"{field_name} must be a number") from exc
+
+
+def _alignment_backend(value: Any) -> str:
+    backend = str(value or "auto").strip().lower()
+    if backend not in {"auto", "needleman_wunsch", "blastp", "mmseqs"}:
+        raise UIRequestError("alignment_backend must be auto, needleman_wunsch, blastp, or mmseqs")
+    return backend
 
 
 def _safe_filename(value: str) -> str:

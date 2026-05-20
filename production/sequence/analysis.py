@@ -2,6 +2,7 @@ import re
 from typing import Dict, Iterable, List, Optional
 from xml.etree import ElementTree
 
+from production.sequence.alignment_backends import PairwiseAlignment, run_external_alignment_backend
 from production.sequence.models import (
     ClaimResidueCondition,
     ResiduePositionMapping,
@@ -227,6 +228,7 @@ def compare_claim_sequences(
     seq_id_references: Iterable[str],
     reference_sequences: Dict[str, str],
     threshold: Optional[float] = None,
+    alignment_backend: str = "auto",
 ) -> List[SequenceAlignmentResult]:
     residue_conditions = extract_claim_residue_conditions(claim_text)
     refs = list(seq_id_references) or extract_seq_id_references(claim_text)
@@ -277,6 +279,7 @@ def compare_claim_sequences(
                 ref,
                 threshold,
                 residue_conditions=ref_conditions,
+                alignment_backend=alignment_backend,
             )
         )
     return results
@@ -288,6 +291,7 @@ def align_sequences(
     seq_id: str = "reference",
     threshold: Optional[float] = None,
     residue_conditions: Optional[Iterable[ClaimResidueCondition]] = None,
+    alignment_backend: str = "auto",
 ) -> SequenceAlignmentResult:
     target = normalize_amino_acid_sequence(target_sequence)
     reference = normalize_amino_acid_sequence(reference_sequence)
@@ -308,35 +312,114 @@ def align_sequences(
             reasoning=f"{seq_id} has no recoverable reference sequence.",
         )
 
+    backend_outcome = run_external_alignment_backend(target, reference, alignment_backend)
+    if backend_outcome.alignment:
+        return _alignment_result_from_backend(
+            target=target,
+            reference=reference,
+            seq_id=seq_id,
+            threshold=threshold,
+            residue_conditions=list(residue_conditions or []),
+            backend_alignment=backend_outcome.alignment,
+            backend_notes=backend_outcome.notes,
+        )
+
     aligned_target, aligned_reference = _needleman_wunsch(target, reference)
+    notes = backend_outcome.notes if (alignment_backend or "auto").lower() != "needleman_wunsch" else []
+    return _alignment_result_from_aligned_sequences(
+        target=target,
+        reference=reference,
+        aligned_target=aligned_target,
+        aligned_reference=aligned_reference,
+        seq_id=seq_id,
+        threshold=threshold,
+        residue_conditions=list(residue_conditions or []),
+        alignment_backend="needleman_wunsch",
+        alignment_scope="global",
+        alignment_notes=notes,
+        local_identity=None,
+    )
+
+
+def _alignment_result_from_backend(
+    target: str,
+    reference: str,
+    seq_id: str,
+    threshold: Optional[float],
+    residue_conditions: List[ClaimResidueCondition],
+    backend_alignment: PairwiseAlignment,
+    backend_notes: List[str],
+) -> SequenceAlignmentResult:
+    return _alignment_result_from_aligned_sequences(
+        target=target,
+        reference=reference,
+        aligned_target=backend_alignment.aligned_target,
+        aligned_reference=backend_alignment.aligned_reference,
+        seq_id=seq_id,
+        threshold=threshold,
+        residue_conditions=residue_conditions,
+        alignment_backend=backend_alignment.backend,
+        alignment_scope=backend_alignment.scope,
+        alignment_notes=backend_notes + backend_alignment.notes,
+        local_identity=backend_alignment.local_identity,
+        target_start_position=backend_alignment.target_start,
+        reference_start_position=backend_alignment.reference_start,
+    )
+
+
+def _alignment_result_from_aligned_sequences(
+    target: str,
+    reference: str,
+    aligned_target: str,
+    aligned_reference: str,
+    seq_id: str,
+    threshold: Optional[float],
+    residue_conditions: List[ClaimResidueCondition],
+    alignment_backend: str,
+    alignment_scope: str,
+    alignment_notes: Optional[List[str]] = None,
+    local_identity: Optional[float] = None,
+    target_start_position: int = 1,
+    reference_start_position: int = 1,
+) -> SequenceAlignmentResult:
     matches = 0
     substitutions: List[str] = []
     deletions: List[str] = []
     insertions: List[str] = []
-    ref_pos = 0
+    ref_pos = reference_start_position - 1
+    target_pos = target_start_position - 1
 
     for target_char, reference_char in zip(aligned_target, aligned_reference):
+        current_target_pos = None
+        current_ref_pos = None
+        if target_char != "-":
+            target_pos += 1
+            current_target_pos = target_pos
         if reference_char != "-":
             ref_pos += 1
+            current_ref_pos = ref_pos
         if target_char == reference_char and target_char != "-":
             matches += 1
         elif target_char == "-" and reference_char != "-":
-            _append_limited(deletions, f"del{ref_pos}{reference_char}")
+            _append_limited(deletions, f"del{current_ref_pos}{reference_char}")
         elif reference_char == "-" and target_char != "-":
             _append_limited(insertions, f"ins{ref_pos}{target_char}")
         elif target_char != "-" and reference_char != "-":
-            _append_limited(substitutions, f"{reference_char}{ref_pos}{target_char}")
+            _append_limited(substitutions, f"{reference_char}{current_ref_pos}{target_char}")
 
     identity = round((matches / max(len(target), len(reference))) * 100, 2)
-    aligned_reference_positions = sum(1 for char in aligned_reference if char != "-")
     covered_reference_positions = sum(
         1
         for target_char, reference_char in zip(aligned_target, aligned_reference)
         if target_char != "-" and reference_char != "-"
     )
-    coverage = round((covered_reference_positions / aligned_reference_positions) * 100, 2)
+    coverage = round((covered_reference_positions / max(len(reference), 1)) * 100, 2)
     threshold_met = identity >= threshold if threshold is not None else None
-    reasoning = f"{seq_id} alignment identity {identity}% with {coverage}% reference coverage."
+    local_text = f" Local backend identity is {local_identity}%." if local_identity is not None else ""
+    reasoning = (
+        f"{seq_id} {alignment_scope} alignment via {alignment_backend} gives full-length-normalized "
+        f"identity {identity}% with {coverage}% reference coverage.{local_text}"
+    )
     if threshold is not None:
         reasoning += f" Claim threshold is at least {threshold}%."
     residue_position_mappings = _map_claim_residue_positions(
@@ -345,13 +428,19 @@ def align_sequences(
         seq_id=seq_id,
         conditions=list(residue_conditions or []),
         identity=identity,
+        local_identity=local_identity,
         coverage=coverage,
+        target_start_position=target_start_position,
+        reference_start_position=reference_start_position,
+        reference_length=len(reference),
+        alignment_label=f"{alignment_scope} {alignment_backend}",
     )
 
     return SequenceAlignmentResult(
         seq_id=seq_id,
         status="matched",
         identity=identity,
+        local_identity=local_identity,
         coverage=coverage,
         target_length=len(target),
         reference_length=len(reference),
@@ -360,6 +449,9 @@ def align_sequences(
         deletions=deletions,
         insertions=insertions,
         residue_position_mappings=residue_position_mappings,
+        alignment_backend=alignment_backend,
+        alignment_scope=alignment_scope,
+        alignment_notes=alignment_notes or [],
         threshold=threshold,
         threshold_met=threshold_met,
         reasoning=reasoning,
@@ -435,7 +527,12 @@ def _map_claim_residue_positions(
     seq_id: str,
     conditions: List[ClaimResidueCondition],
     identity: Optional[float],
+    local_identity: Optional[float],
     coverage: Optional[float],
+    target_start_position: int = 1,
+    reference_start_position: int = 1,
+    reference_length: Optional[int] = None,
+    alignment_label: str = "global alignment",
 ) -> List[ResiduePositionMapping]:
     if not conditions:
         return []
@@ -446,8 +543,8 @@ def _map_claim_residue_positions(
 
     mappings: List[ResiduePositionMapping] = []
     mapped_condition_indexes: set[int] = set()
-    target_pos = 0
-    reference_pos = 0
+    target_pos = target_start_position - 1
+    reference_pos = reference_start_position - 1
     for target_char, reference_char in zip(aligned_target, aligned_reference):
         current_target_pos = None
         current_reference_pos = None
@@ -470,7 +567,9 @@ def _map_claim_residue_positions(
                     target_position=current_target_pos,
                     target_residue=target_char if target_char != "-" else None,
                     identity=identity,
+                    local_identity=local_identity,
                     coverage=coverage,
+                    alignment_label=alignment_label,
                 )
             )
 
@@ -485,11 +584,15 @@ def _map_claim_residue_positions(
                 reference_position=condition.reference_position,
                 original_residue=condition.original_residue,
                 claimed_residue=condition.claimed_residue,
-                status="reference_position_out_of_range",
+                status=(
+                    "reference_position_out_of_range"
+                    if reference_length is not None and condition.reference_position > reference_length
+                    else "reference_position_not_aligned"
+                ),
                 confidence="low",
                 reasoning=(
                     f"{condition.raw_text} cites {seq_id} position {condition.reference_position}, "
-                    "but that position is outside the recovered reference sequence."
+                    "but that position was not covered by the selected alignment."
                 ),
             )
         )
@@ -503,7 +606,9 @@ def _residue_mapping_from_alignment_column(
     target_position: Optional[int],
     target_residue: Optional[str],
     identity: Optional[float],
+    local_identity: Optional[float],
     coverage: Optional[float],
+    alignment_label: str,
 ) -> ResiduePositionMapping:
     original_matches = (
         reference_residue == condition.original_residue
@@ -516,7 +621,7 @@ def _residue_mapping_from_alignment_column(
         else None
     )
     status = "mapped" if target_position is not None else "target_gap"
-    confidence = _residue_mapping_confidence(status, identity, coverage, original_matches)
+    confidence = _residue_mapping_confidence(status, local_identity or identity, coverage, original_matches)
     if status == "mapped":
         match_text = ""
         if condition.claimed_residue:
@@ -526,7 +631,7 @@ def _residue_mapping_from_alignment_column(
             )
         reasoning = (
             f"{seq_id} position {condition.reference_position} maps to product position "
-            f"{target_position} by global alignment.{match_text}"
+            f"{target_position} by {alignment_label} alignment.{match_text}"
         )
     else:
         reasoning = (
