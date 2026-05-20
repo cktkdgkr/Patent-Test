@@ -25,6 +25,13 @@ recoverable `SEQ ID NO` sequence, the screening workflow computes percent
 identity, coverage, and mutation/deletion/insertion differences from the
 submitted amino acid sequence.
 
+Claims that recite a specific residue position, such as `A125Y`, `position 125
+is tyrosine`, or `lysine at position 125 of SEQ ID NO:1`, are also mapped through
+the sequence alignment. The report records which product residue corresponds to
+the patent reference position, whether the product residue matches the claimed
+residue, and a confidence label based on alignment identity, coverage, gaps, and
+whether the recovered reference residue agrees with the claim wording.
+
 When public web fetching is enabled, missing `SEQ ID NO` reference sequences are
 resolved from public sequence sources when possible:
 

@@ -175,6 +175,7 @@ async def screen_product_against_patent_text(
         computed_identity = _best_sequence_identity(sequence_comparisons)
         if computed_identity is not None:
             claim_target_spec["identity"] = computed_identity
+        _add_residue_mapping_signals_to_target(claim_target_spec, sequence_comparisons)
         report = await RiskAnalyzer.analyze_risk([features], claim_target_spec)
         claim_results.append(
             ClaimScreeningResult(
@@ -258,6 +259,30 @@ def _best_sequence_identity(sequence_comparisons: List[SequenceAlignmentResult])
     return max(identities) if identities else None
 
 
+def _add_residue_mapping_signals_to_target(
+    target_spec: Dict[str, Any],
+    sequence_comparisons: List[SequenceAlignmentResult],
+) -> None:
+    matches = []
+    mismatches = []
+    ambiguous = []
+    for comparison in sequence_comparisons:
+        for mapping in comparison.residue_position_mappings:
+            payload = mapping.model_dump()
+            if mapping.status == "mapped" and mapping.claim_match is True and mapping.confidence in {"high", "medium"}:
+                matches.append(payload)
+            elif mapping.status == "mapped" and mapping.claim_match is False:
+                mismatches.append(payload)
+            elif mapping.status != "mapped" or mapping.confidence == "low" or mapping.claim_match is None:
+                ambiguous.append(payload)
+    if matches:
+        target_spec["mapped_residue_claim_matches"] = matches
+    if mismatches:
+        target_spec["mapped_residue_claim_mismatches"] = mismatches
+    if ambiguous:
+        target_spec["ambiguous_claim_residue_mappings"] = ambiguous
+
+
 def _overlap_signals(
     features: ClaimFeatures,
     target_spec: Dict[str, Any],
@@ -281,6 +306,17 @@ def _overlap_signals(
             signals.append("seq_id_reference_missing_sequence")
         elif comparison.status == "no_product_sequence":
             signals.append("product_sequence_missing")
+        for mapping in comparison.residue_position_mappings:
+            if mapping.status == "mapped" and mapping.claim_match is True and mapping.confidence in {"high", "medium"}:
+                signals.append("mapped_residue_claim_match")
+            elif mapping.status == "mapped" and mapping.claim_match is False:
+                signals.append("mapped_residue_claim_mismatch")
+            elif mapping.status == "target_gap":
+                signals.append("mapped_residue_position_gap")
+            elif mapping.status == "reference_position_out_of_range":
+                signals.append("mapped_residue_reference_position_out_of_range")
+            if mapping.confidence == "low":
+                signals.append("mapped_residue_low_confidence")
     target_mutations = {item.upper() for item in target_spec.get("mutation_terms", [])}
     claim_mutations = {item.upper() for item in features.mutation_terms}
     if target_mutations and claim_mutations and target_mutations & claim_mutations:
@@ -340,6 +376,26 @@ def _design_around_options(
                 )
             )
 
+        for mapping in _matched_residue_position_mappings(result.sequence_comparisons)[:4]:
+            options.append(
+                DesignAroundOption(
+                    strategy_type="residue_position_design_space",
+                    claim_id=result.claim_id,
+                    basis=(
+                        f"Claim {result.claim_id} recites {mapping.raw_claim}; "
+                        f"{mapping.seq_id} position {mapping.reference_position} maps to "
+                        f"product position {mapping.product_position}, where the product "
+                        f"residue is {mapping.product_residue}."
+                    ),
+                    proposed_direction=(
+                        "Evaluate variants or homolog choices that avoid the claimed "
+                        f"residue state at the corresponding product position "
+                        f"{mapping.product_position}, while preserving activity and "
+                        "confirming the mapping with domain or structural evidence."
+                    ),
+                )
+            )
+
         if product.ph is not None:
             for low, high in _claim_ph_ranges(features.functional_limitations):
                 if low <= product.ph <= high:
@@ -389,6 +445,17 @@ def _best_sequence_comparison(
     if not matched:
         return None
     return max(matched, key=lambda item: (item.identity or 0.0, item.coverage or 0.0))
+
+
+def _matched_residue_position_mappings(
+    sequence_comparisons: List[SequenceAlignmentResult],
+):
+    mappings = []
+    for comparison in sequence_comparisons:
+        for mapping in comparison.residue_position_mappings:
+            if mapping.status == "mapped" and mapping.claim_match is True and mapping.confidence in {"high", "medium"}:
+                mappings.append(mapping)
+    return mappings
 
 
 def _claim_ph_ranges(functional_limitations: List[str]) -> List[tuple[float, float]]:

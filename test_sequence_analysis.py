@@ -1,5 +1,6 @@
 from production.sequence import (
     align_sequences,
+    extract_claim_residue_conditions,
     extract_mutation_terms,
     extract_reference_sequences,
     extract_seq_id_references,
@@ -38,6 +39,25 @@ def main():
 
     mutations = extract_mutation_terms("wherein the variant comprises A10V substitution")
     assert "A10V" in mutations
+
+    residue_claim = "The enzyme comprises lysine at position 8 of SEQ ID NO:1."
+    residue_conditions = extract_claim_residue_conditions(residue_claim)
+    print(residue_conditions)
+    assert residue_conditions[0].reference_position == 8
+    assert residue_conditions[0].claimed_residue == "K"
+    mapped_alignment = align_sequences(
+        "MKTAYISSKQR",
+        "MKTAYIAKQR",
+        seq_id="SEQ ID NO:1",
+        residue_conditions=residue_conditions,
+    )
+    print(mapped_alignment.model_dump_json(indent=2))
+    mapping = mapped_alignment.residue_position_mappings[0]
+    assert mapping.reference_position == 8
+    assert mapping.product_position == 9
+    assert mapping.product_residue == "K"
+    assert mapping.claim_match is True
+    assert mapping.confidence in {"high", "medium"}
 
     st26_xml = """<?xml version="1.0" encoding="UTF-8"?>
     <ST26SequenceListing>

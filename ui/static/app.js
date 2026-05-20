@@ -231,6 +231,7 @@ function renderSequenceComparison(comparison) {
     ...(comparison.deletions || []),
     ...(comparison.insertions || []),
   ].slice(0, 8);
+  const mappings = (comparison.residue_position_mappings || []).slice(0, 5).map(renderResidueMapping).join("<br>");
   return `
     <div class="option-item">
       <div class="option-type">Claim ${escapeHtml(String(comparison.claim_id))} · ${escapeHtml(comparison.seq_id || "")}</div>
@@ -241,8 +242,16 @@ function renderSequenceComparison(comparison) {
       </div>
       <div class="option-text">${escapeHtml(comparison.reasoning || comparison.status || "")}</div>
       <div class="cell-sub">${changes.length ? escapeHtml(changes.join(", ")) : escapeHtml(comparison.status || "")}</div>
+      ${mappings ? `<div class="cell-sub">${mappings}</div>` : ""}
     </div>
   `;
+}
+
+function renderResidueMapping(mapping) {
+  const product = mapping.product_position ? `Product ${mapping.product_position}${mapping.product_residue || ""}` : mapping.status;
+  const claim = mapping.claimed_residue ? `claimed ${mapping.claimed_residue}` : mapping.raw_claim || "";
+  const match = mapping.claim_match === true ? "match" : mapping.claim_match === false ? "mismatch" : mapping.confidence;
+  return escapeHtml(`Patent ${mapping.reference_position}${mapping.reference_residue || ""} -> ${product} (${claim}, ${match})`);
 }
 
 function renderClaim(claim) {

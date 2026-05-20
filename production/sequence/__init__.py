@@ -1,6 +1,7 @@
 from .analysis import (
     align_sequences,
     compare_claim_sequences,
+    extract_claim_residue_conditions,
     extract_mutation_terms,
     extract_reference_sequences,
     extract_seq_id_references,
@@ -10,14 +11,17 @@ from .analysis import (
     normalize_amino_acid_sequence,
     sequence_listing_content_to_sequence,
 )
-from .models import SequenceAlignmentResult
+from .models import ClaimResidueCondition, ResiduePositionMapping, SequenceAlignmentResult
 from .web_retriever import SequenceWebFetchResult, fetch_sequence_references_for_patent
 
 __all__ = [
+    "ClaimResidueCondition",
+    "ResiduePositionMapping",
     "SequenceAlignmentResult",
     "SequenceWebFetchResult",
     "align_sequences",
     "compare_claim_sequences",
+    "extract_claim_residue_conditions",
     "extract_mutation_terms",
     "extract_reference_sequences",
     "extract_seq_id_references",

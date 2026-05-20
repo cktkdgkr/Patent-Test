@@ -124,6 +124,29 @@ class RiskAnalyzer:
                     "thresholds and outside the caution buffer."
                 ),
             )
+        mapped_residue_claim_matches = target_spec.get("mapped_residue_claim_matches") or []
+        if mapped_residue_claim_matches:
+            first_match = mapped_residue_claim_matches[0]
+            return RiskReport(
+                grade=RiskGrade.HIGH,
+                confidence=0.82,
+                reasoning=(
+                    "Product sequence contains a residue matching a claimed patent "
+                    f"position mapping: {first_match.get('seq_id')} position "
+                    f"{first_match.get('reference_position')} maps to product position "
+                    f"{first_match.get('product_position')}."
+                ),
+            )
+        ambiguous_claim_residue_mappings = target_spec.get("ambiguous_claim_residue_mappings") or []
+        if ambiguous_claim_residue_mappings:
+            return RiskReport(
+                grade=RiskGrade.MEDIUM,
+                confidence=0.66,
+                reasoning=(
+                    "Detected a claimed residue position, but the corresponding product "
+                    "residue could not be mapped with enough confidence for a low-risk call."
+                ),
+            )
         target_mutations = set(extract_mutation_terms(str(target_spec.get("variant") or "")))
         claim_mutations = {
             term

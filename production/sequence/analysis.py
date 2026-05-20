@@ -2,7 +2,11 @@ import re
 from typing import Dict, Iterable, List, Optional
 from xml.etree import ElementTree
 
-from production.sequence.models import SequenceAlignmentResult
+from production.sequence.models import (
+    ClaimResidueCondition,
+    ResiduePositionMapping,
+    SequenceAlignmentResult,
+)
 
 AMINO_ACID_ALPHABET = set("ABCDEFGHIKLMNPQRSTVWXYZUO")
 MAX_REPORTED_CHANGES = 24
@@ -33,6 +37,58 @@ THREE_LETTER_AMINO_ACIDS = {
     "SEC": "U",
     "PYL": "O",
 }
+AMINO_ACID_NAMES = {
+    "ALANINE": "A",
+    "ALA": "A",
+    "ARGININE": "R",
+    "ARG": "R",
+    "ASPARAGINE": "N",
+    "ASN": "N",
+    "ASPARTIC": "D",
+    "ASPARTATE": "D",
+    "ASP": "D",
+    "CYSTEINE": "C",
+    "CYS": "C",
+    "GLUTAMINE": "Q",
+    "GLN": "Q",
+    "GLUTAMIC": "E",
+    "GLUTAMATE": "E",
+    "GLU": "E",
+    "GLYCINE": "G",
+    "GLY": "G",
+    "HISTIDINE": "H",
+    "HIS": "H",
+    "ISOLEUCINE": "I",
+    "ILE": "I",
+    "LEUCINE": "L",
+    "LEU": "L",
+    "LYSINE": "K",
+    "LYS": "K",
+    "METHIONINE": "M",
+    "MET": "M",
+    "PHENYLALANINE": "F",
+    "PHE": "F",
+    "PROLINE": "P",
+    "PRO": "P",
+    "SERINE": "S",
+    "SER": "S",
+    "THREONINE": "T",
+    "THR": "T",
+    "TRYPTOPHAN": "W",
+    "TRP": "W",
+    "TYROSINE": "Y",
+    "TYR": "Y",
+    "VALINE": "V",
+    "VAL": "V",
+}
+RESIDUE_TOKEN_PATTERN = (
+    r"A|R|N|D|C|Q|E|G|H|I|L|K|M|F|P|S|T|W|Y|V|"
+    r"alanine|arginine|asparagine|aspartic|aspartate|cysteine|"
+    r"glutamine|glutamic|glutamate|glycine|histidine|isoleucine|"
+    r"leucine|lysine|methionine|phenylalanine|proline|serine|"
+    r"threonine|tryptophan|tyrosine|valine|ala|arg|asn|asp|cys|"
+    r"gln|glu|gly|his|ile|leu|lys|met|phe|pro|ser|thr|trp|tyr|val"
+)
 
 
 def normalize_amino_acid_sequence(value: Optional[str]) -> str:
@@ -76,6 +132,53 @@ def extract_mutation_terms(text: str) -> List[str]:
                 seen.add(key)
                 terms.append(term)
     return terms
+
+
+def extract_claim_residue_conditions(text: str) -> List[ClaimResidueCondition]:
+    seq_refs = extract_seq_id_references(text)
+    conditions: List[ClaimResidueCondition] = []
+    for match in re.finditer(
+        r"\b(?P<from>[ARNDCQEGHILKMFPSTWYV])(?P<pos>\d{1,5})(?P<to>[ARNDCQEGHILKMFPSTWYV])\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        conditions.append(
+            ClaimResidueCondition(
+                raw_text=match.group(0),
+                seq_id=_seq_id_near_match(text, match.start(), match.end(), seq_refs),
+                mutation_type="substitution",
+                reference_position=int(match.group("pos")),
+                original_residue=_residue_to_one_letter(match.group("from")),
+                claimed_residue=_residue_to_one_letter(match.group("to")),
+            )
+        )
+
+    residue_patterns = (
+        rf"\b(?:position|residue|amino\s+acid)\s+(?P<pos>\d{{1,5}})\s+"
+        rf"(?:is|are|being|comprises|comprising|has|having|with|to)\s+"
+        rf"(?P<to>{RESIDUE_TOKEN_PATTERN})\b",
+        rf"\b(?:residue|amino\s+acid)\s+corresponding\s+to\s+"
+        rf"(?:position|residue)\s+(?P<pos>\d{{1,5}})[^.;,\n]{{0,80}}?"
+        rf"(?:is|are|being|comprises|comprising|has|having|with|to)\s+"
+        rf"(?P<to>{RESIDUE_TOKEN_PATTERN})\b",
+        rf"\b(?P<to>{RESIDUE_TOKEN_PATTERN})\s+(?:residue\s+)?"
+        rf"at\s+(?:position|residue)\s+(?P<pos>\d{{1,5}})\b",
+    )
+    for pattern in residue_patterns:
+        for match in re.finditer(pattern, text, flags=re.IGNORECASE):
+            claimed = _residue_to_one_letter(match.group("to"))
+            if not claimed:
+                continue
+            conditions.append(
+                ClaimResidueCondition(
+                    raw_text=" ".join(match.group(0).split()),
+                    seq_id=_seq_id_near_match(text, match.start(), match.end(), seq_refs),
+                    mutation_type="residue_requirement",
+                    reference_position=int(match.group("pos")),
+                    claimed_residue=claimed,
+                )
+            )
+    return _dedupe_residue_conditions(conditions)
 
 
 def extract_reference_sequences(text: str) -> Dict[str, str]:
@@ -125,7 +228,13 @@ def compare_claim_sequences(
     reference_sequences: Dict[str, str],
     threshold: Optional[float] = None,
 ) -> List[SequenceAlignmentResult]:
+    residue_conditions = extract_claim_residue_conditions(claim_text)
     refs = list(seq_id_references) or extract_seq_id_references(claim_text)
+    if not refs and residue_conditions:
+        condition_refs = [condition.seq_id for condition in residue_conditions if condition.seq_id]
+        refs = [ref for index, ref in enumerate(condition_refs) if ref and ref not in condition_refs[:index]]
+        if not refs and len(reference_sequences) == 1:
+            refs = list(reference_sequences)
     if not refs:
         return []
     if not product_sequence:
@@ -156,7 +265,20 @@ def compare_claim_sequences(
                 )
             )
             continue
-        results.append(align_sequences(product_sequence, reference_sequence, ref, threshold))
+        ref_conditions = [
+            condition
+            for condition in residue_conditions
+            if not condition.seq_id or condition.seq_id == ref
+        ]
+        results.append(
+            align_sequences(
+                product_sequence,
+                reference_sequence,
+                ref,
+                threshold,
+                residue_conditions=ref_conditions,
+            )
+        )
     return results
 
 
@@ -165,6 +287,7 @@ def align_sequences(
     reference_sequence: str,
     seq_id: str = "reference",
     threshold: Optional[float] = None,
+    residue_conditions: Optional[Iterable[ClaimResidueCondition]] = None,
 ) -> SequenceAlignmentResult:
     target = normalize_amino_acid_sequence(target_sequence)
     reference = normalize_amino_acid_sequence(reference_sequence)
@@ -216,6 +339,14 @@ def align_sequences(
     reasoning = f"{seq_id} alignment identity {identity}% with {coverage}% reference coverage."
     if threshold is not None:
         reasoning += f" Claim threshold is at least {threshold}%."
+    residue_position_mappings = _map_claim_residue_positions(
+        aligned_target=aligned_target,
+        aligned_reference=aligned_reference,
+        seq_id=seq_id,
+        conditions=list(residue_conditions or []),
+        identity=identity,
+        coverage=coverage,
+    )
 
     return SequenceAlignmentResult(
         seq_id=seq_id,
@@ -228,6 +359,7 @@ def align_sequences(
         substitutions=substitutions,
         deletions=deletions,
         insertions=insertions,
+        residue_position_mappings=residue_position_mappings,
         threshold=threshold,
         threshold_met=threshold_met,
         reasoning=reasoning,
@@ -258,6 +390,188 @@ def _extract_inline_seq_ids(text: str) -> Dict[str, str]:
         if len(seq) >= 10:
             sequences[f"SEQ ID NO:{int(match.group('num'))}"] = seq
     return sequences
+
+
+def _seq_id_near_match(text: str, start: int, end: int, seq_refs: List[str]) -> Optional[str]:
+    window = text[max(0, start - 120) : min(len(text), end + 120)]
+    local_refs = extract_seq_id_references(window)
+    if local_refs:
+        return local_refs[0]
+    return seq_refs[0] if len(seq_refs) == 1 else None
+
+
+def _residue_to_one_letter(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    normalized = re.sub(r"[^A-Za-z]", "", value).upper()
+    if len(normalized) == 1 and normalized in AMINO_ACID_ALPHABET:
+        return normalized
+    return AMINO_ACID_NAMES.get(normalized)
+
+
+def _dedupe_residue_conditions(
+    conditions: List[ClaimResidueCondition],
+) -> List[ClaimResidueCondition]:
+    deduped: List[ClaimResidueCondition] = []
+    seen = set()
+    for condition in conditions:
+        key = (
+            condition.seq_id,
+            condition.mutation_type,
+            condition.reference_position,
+            condition.original_residue,
+            condition.claimed_residue,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(condition)
+    return deduped
+
+
+def _map_claim_residue_positions(
+    aligned_target: str,
+    aligned_reference: str,
+    seq_id: str,
+    conditions: List[ClaimResidueCondition],
+    identity: Optional[float],
+    coverage: Optional[float],
+) -> List[ResiduePositionMapping]:
+    if not conditions:
+        return []
+
+    conditions_by_position: Dict[int, List[tuple[int, ClaimResidueCondition]]] = {}
+    for index, condition in enumerate(conditions):
+        conditions_by_position.setdefault(condition.reference_position, []).append((index, condition))
+
+    mappings: List[ResiduePositionMapping] = []
+    mapped_condition_indexes: set[int] = set()
+    target_pos = 0
+    reference_pos = 0
+    for target_char, reference_char in zip(aligned_target, aligned_reference):
+        current_target_pos = None
+        current_reference_pos = None
+        if target_char != "-":
+            target_pos += 1
+            current_target_pos = target_pos
+        if reference_char != "-":
+            reference_pos += 1
+            current_reference_pos = reference_pos
+
+        if current_reference_pos is None or current_reference_pos not in conditions_by_position:
+            continue
+        for index, condition in conditions_by_position[current_reference_pos]:
+            mapped_condition_indexes.add(index)
+            mappings.append(
+                _residue_mapping_from_alignment_column(
+                    seq_id=seq_id,
+                    condition=condition,
+                    reference_residue=reference_char,
+                    target_position=current_target_pos,
+                    target_residue=target_char if target_char != "-" else None,
+                    identity=identity,
+                    coverage=coverage,
+                )
+            )
+
+    for index, condition in enumerate(conditions):
+        if index in mapped_condition_indexes:
+            continue
+        mappings.append(
+            ResiduePositionMapping(
+                seq_id=seq_id,
+                raw_claim=condition.raw_text,
+                mutation_type=condition.mutation_type,
+                reference_position=condition.reference_position,
+                original_residue=condition.original_residue,
+                claimed_residue=condition.claimed_residue,
+                status="reference_position_out_of_range",
+                confidence="low",
+                reasoning=(
+                    f"{condition.raw_text} cites {seq_id} position {condition.reference_position}, "
+                    "but that position is outside the recovered reference sequence."
+                ),
+            )
+        )
+    return mappings
+
+
+def _residue_mapping_from_alignment_column(
+    seq_id: str,
+    condition: ClaimResidueCondition,
+    reference_residue: str,
+    target_position: Optional[int],
+    target_residue: Optional[str],
+    identity: Optional[float],
+    coverage: Optional[float],
+) -> ResiduePositionMapping:
+    original_matches = (
+        reference_residue == condition.original_residue
+        if condition.original_residue and reference_residue
+        else None
+    )
+    claim_match = (
+        target_residue == condition.claimed_residue
+        if target_residue and condition.claimed_residue
+        else None
+    )
+    status = "mapped" if target_position is not None else "target_gap"
+    confidence = _residue_mapping_confidence(status, identity, coverage, original_matches)
+    if status == "mapped":
+        match_text = ""
+        if condition.claimed_residue:
+            match_text = (
+                f" Product residue {target_residue} {'matches' if claim_match else 'does not match'} "
+                f"claimed residue {condition.claimed_residue}."
+            )
+        reasoning = (
+            f"{seq_id} position {condition.reference_position} maps to product position "
+            f"{target_position} by global alignment.{match_text}"
+        )
+    else:
+        reasoning = (
+            f"{seq_id} position {condition.reference_position} aligns to a gap in the "
+            "product sequence."
+        )
+    if original_matches is False:
+        reasoning += (
+            f" The claim's stated original residue {condition.original_residue} does not "
+            f"match recovered reference residue {reference_residue}."
+        )
+
+    return ResiduePositionMapping(
+        seq_id=seq_id,
+        raw_claim=condition.raw_text,
+        mutation_type=condition.mutation_type,
+        reference_position=condition.reference_position,
+        reference_residue=reference_residue,
+        original_residue=condition.original_residue,
+        original_residue_matches=original_matches,
+        product_position=target_position,
+        product_residue=target_residue,
+        claimed_residue=condition.claimed_residue,
+        claim_match=claim_match,
+        status=status,
+        confidence=confidence,
+        reasoning=reasoning,
+    )
+
+
+def _residue_mapping_confidence(
+    status: str,
+    identity: Optional[float],
+    coverage: Optional[float],
+    original_matches: Optional[bool],
+) -> str:
+    if original_matches is False:
+        return "low"
+    if identity is None or coverage is None:
+        return "low"
+    if status == "mapped" and identity >= 60.0 and coverage >= 80.0:
+        return "high"
+    if status in {"mapped", "target_gap"} and identity >= 30.0 and coverage >= 50.0:
+        return "medium"
+    return "low"
 
 
 def _st26_xml_roots(text: str) -> List[ElementTree.Element]:
