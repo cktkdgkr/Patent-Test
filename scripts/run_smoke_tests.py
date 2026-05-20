@@ -20,6 +20,7 @@ TESTS = [
     "test_sequence_web_retriever.py",
     "test_web_fetcher.py",
     "test_ui_server.py",
+    "test_country_code_ingestion.py",
 ]
 
 

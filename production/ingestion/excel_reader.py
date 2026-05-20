@@ -14,6 +14,23 @@ HEADER_ALIASES = {
     "patent_id": {"patent_id", "patent id", "patent", "mock_patent_id"},
     "title": {"title", "invention title", "patent title"},
     "applicant": {"applicant", "assignee", "owner"},
+    "country_code": {
+        "country_code",
+        "country code",
+        "country",
+        "cc",
+        "country (cc)",
+        "jurisdiction",
+        "jurisdiction code",
+        "office",
+        "patent office",
+        "kind country",
+        "국가",
+        "국가코드",
+        "출원국",
+        "공개국가",
+        "공개국",
+    },
     "publication_number": {"publication_number", "publication number", "pub no", "publication"},
     "application_number": {"application_number", "application number", "app no", "application"},
     "patent_file": {"patent_file", "patent file", "file", "text file"},
@@ -120,12 +137,37 @@ def _column_index(cell_ref: str) -> int:
     return max(total - 1, 0)
 
 
+_STRUCTURED_ID_FIELDS = {
+    "candidate_id",
+    "patent_id",
+    "publication_number",
+    "application_number",
+    "patent_file",
+}
+
+
 def _candidate_from_row(row: Dict[str, str], index: int) -> PatentCandidate:
-    normalized = {
-        _canonical_header(key): Sanitizer.sanitize(str(value).strip())
-        for key, value in row.items()
-        if value is not None and str(value).strip()
-    }
+    # Patent identifier fields are structured numeric/alphanumeric IDs (e.g.
+    # KR publication numbers like ``10-2020-0012345``) that resemble
+    # bank-account or credit-card patterns but never carry PII destined for
+    # the LLM. Validate their shape, skip the heavy sanitizer, and keep full
+    # sanitization on free-text fields (title, claim_text, abstract, ...).
+    # ``country_code`` accepts localized strings (예: "미국", "대한민국") and
+    # is normalized downstream, so it bypasses the strict identifier check.
+    normalized: Dict[str, str] = {}
+    for key, value in row.items():
+        if value is None:
+            continue
+        text = str(value).strip()
+        if not text:
+            continue
+        canonical = _canonical_header(key)
+        if canonical in _STRUCTURED_ID_FIELDS:
+            normalized[canonical] = _validate_identifier(canonical, text)
+        elif canonical == "country_code":
+            normalized[canonical] = text
+        else:
+            normalized[canonical] = Sanitizer.sanitize(text)
     metadata = {
         key: value
         for key, value in normalized.items()
@@ -138,6 +180,7 @@ def _candidate_from_row(row: Dict[str, str], index: int) -> PatentCandidate:
         patent_id=normalized.get("patent_id"),
         title=normalized.get("title"),
         applicant=normalized.get("applicant"),
+        country_code=_normalize_country_code(normalized.get("country_code")),
         publication_number=normalized.get("publication_number"),
         application_number=normalized.get("application_number"),
         patent_file=normalized.get("patent_file"),
@@ -146,6 +189,94 @@ def _candidate_from_row(row: Dict[str, str], index: int) -> PatentCandidate:
         keywords=keywords,
         metadata=metadata,
     )
+
+
+_COUNTRY_NAME_TO_CODE = {
+    "us": "US",
+    "usa": "US",
+    "united states": "US",
+    "미국": "US",
+    "kr": "KR",
+    "korea": "KR",
+    "republic of korea": "KR",
+    "south korea": "KR",
+    "대한민국": "KR",
+    "한국": "KR",
+    "jp": "JP",
+    "japan": "JP",
+    "일본": "JP",
+    "cn": "CN",
+    "china": "CN",
+    "중국": "CN",
+    "ep": "EP",
+    "epo": "EP",
+    "europe": "EP",
+    "european patent": "EP",
+    "유럽": "EP",
+    "wo": "WO",
+    "wipo": "WO",
+    "pct": "WO",
+    "world": "WO",
+    "gb": "GB",
+    "uk": "GB",
+    "united kingdom": "GB",
+    "영국": "GB",
+    "de": "DE",
+    "germany": "DE",
+    "독일": "DE",
+    "fr": "FR",
+    "france": "FR",
+    "프랑스": "FR",
+    "ca": "CA",
+    "canada": "CA",
+    "캐나다": "CA",
+    "au": "AU",
+    "australia": "AU",
+    "호주": "AU",
+    "in": "IN",
+    "india": "IN",
+    "인도": "IN",
+    "tw": "TW",
+    "taiwan": "TW",
+    "대만": "TW",
+}
+
+
+_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9._/\-\\ ]+$")
+_IDENTIFIER_MAX_LEN = 128
+
+
+def _validate_identifier(field: str, value: str) -> str:
+    """Lightweight shape check for structured ID columns; rejects free-text
+    PII while permitting patent identifier formats (US11723967B2,
+    KR10-2020-0012345, EP 3 000 000 A1, file paths under data/patent_cache/...).
+    """
+    if len(value) > _IDENTIFIER_MAX_LEN:
+        raise ValueError(f"{field} value exceeds {_IDENTIFIER_MAX_LEN} characters")
+    if not _IDENTIFIER_PATTERN.match(value):
+        raise ValueError(
+            f"{field} value contains characters outside the allowed identifier set: {value!r}"
+        )
+    return value
+
+
+def _normalize_country_code(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    cleaned = str(value).strip()
+    if not cleaned:
+        return None
+    upper = cleaned.upper()
+    if re.fullmatch(r"[A-Z]{2}", upper):
+        return upper
+    lookup = cleaned.lower()
+    if lookup in _COUNTRY_NAME_TO_CODE:
+        return _COUNTRY_NAME_TO_CODE[lookup]
+    # Pull a 2-letter prefix from forms like "US-United States" or "US (United States)"
+    prefix = re.match(r"^([A-Za-z]{2})\b", upper)
+    if prefix:
+        return prefix.group(1)
+    return None
 
 
 def _canonical_header(header: str) -> str:

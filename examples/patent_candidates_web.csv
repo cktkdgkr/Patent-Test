@@ -1,2 +1,3 @@
-candidate_id,publication_number,title,claim_text,keywords
-candidate_web_amylase,US20100048446A1,Public enzyme web fetch example,,amylase;variant;web
+candidate_id,country_code,publication_number,title,claim_text,keywords
+candidate_web_amylase,US,20100048446A1,Public enzyme web fetch example,,amylase;variant;web
+candidate_kr_protease,KR,10-2020-0012345,KR protease example,,protease;variant

@@ -131,7 +131,7 @@ async def _screen_candidate(
             run_id=run_id,
             allow_sequence_web_fetch=allow_web_fetch,
         )
-    identifier = candidate.publication_number or candidate.application_number
+    identifier = candidate.combined_identifier()
     if identifier:
         fetch_result = fetch_patent_by_identifier(
             identifier,

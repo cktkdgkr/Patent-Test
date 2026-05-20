@@ -39,10 +39,33 @@ class Sanitizer:
         if not text:
             return False, ""
         for category, pattern in cls.PII_PATTERNS.items():
-            if re.search(pattern, text, flags=re.IGNORECASE):
+            for match in re.finditer(pattern, text, flags=re.IGNORECASE):
+                # 13-16 digit sequences are common in patent identifiers
+                # (e.g. Korean publication numbers like 10-2020-0012345).
+                # Require Luhn validity so only payment-card-shaped numbers
+                # trigger the credit-card category. Real cards pass Luhn;
+                # patent identifiers and other long numeric IDs do not.
+                if category == "CREDIT_CARD" and not cls._is_likely_credit_card(match.group(0)):
+                    continue
                 logger.error("Data protection violation detected: %s", category)
                 return True, category
         return False, ""
+
+    @staticmethod
+    def _is_likely_credit_card(text: str) -> bool:
+        digits = re.sub(r"\D", "", text)
+        if not 13 <= len(digits) <= 16:
+            return False
+        total = 0
+        parity = len(digits) % 2
+        for index, character in enumerate(digits):
+            value = int(character)
+            if index % 2 == parity:
+                value *= 2
+                if value > 9:
+                    value -= 9
+            total += value
+        return total % 10 == 0
 
     @classmethod
     def sanitize(cls, text: str) -> str:

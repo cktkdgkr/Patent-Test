@@ -86,11 +86,31 @@ such as:
 
 - `candidate_id`
 - `patent_id`
+- `country_code` (optional — see "Country codes" below)
 - `publication_number`
+- `application_number`
 - `title`
 - `claim_text`
 - `patent_file`
 - `keywords`
+
+### Country codes
+
+When a row's `publication_number` or `application_number` lacks the leading
+2-letter office prefix (for example `10-2020-0012345` instead of
+`KR1020200012345`), populate `country_code` to disambiguate. The ingestion
+layer accepts ISO 2-letter codes (`US`, `KR`, `EP`, `WO`, `JP`, `CN`, `GB`,
+`DE`, `FR`, `CA`, `AU`, `IN`, `TW`) and common spellings in English or
+Korean (`USA`, `미국`, `대한민국`, `한국`, `Japan`, `일본`, `China`, `중국`,
+`europe`, `유럽`, `wipo`, `pct`, ...). Column header aliases are equally
+permissive: `country_code`, `country code`, `country`, `cc`, `jurisdiction`,
+`patent office`, `국가`, `국가코드`, `출원국`, `공개국가`.
+
+When both fields are present, the screening workflow combines them as
+`<CC><cleaned_number>` (for example `KR` + `10-2020-0012345` becomes
+`KR1020200012345`) before resolving the local cache or calling the
+public-web fetcher. Rows whose publication number already begins with a
+2-letter prefix are preserved as-is and the column is ignored.
 
 The current local workflow can screen rows that contain `claim_text`, a local
 `patent_file`, a local mock `patent_id`, or a `publication_number` /
