@@ -523,6 +523,132 @@ tbody tr:last-child td {
   }
 }
 
+.tabs {
+  display: inline-flex;
+  border: 1px solid #d6dde6;
+  border-radius: 999px;
+  padding: 3px;
+  background: #f1f4f8;
+  gap: 2px;
+}
+
+.tab {
+  border: 0;
+  background: transparent;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  color: #4d5b6c;
+  cursor: pointer;
+}
+
+.tab.active {
+  background: #ffffff;
+  color: #0f3d2e;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  font-weight: 600;
+}
+
+.tab:focus-visible {
+  outline: 2px solid #0f3d2e;
+  outline-offset: 2px;
+}
+
+.tab-panel.hidden,
+.hidden {
+  display: none !important;
+}
+
+.loaded-banner {
+  background: #fff7e6;
+  border: 1px solid #f0d397;
+  color: #6b4a08;
+  padding: 8px 12px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.history-filters {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+  align-items: end;
+}
+
+.history-filters label {
+  gap: 4px;
+}
+
+.history-filters .filter-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.history-filters .filter-actions button {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid #c8d2dd;
+  background: #ffffff;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.history-filters .filter-actions button.primary {
+  background: #0f3d2e;
+  color: #ffffff;
+  border-color: #0f3d2e;
+}
+
+.history-summary {
+  font-size: 12px;
+  color: #6c7787;
+  margin-bottom: 8px;
+}
+
+.history-table th,
+.history-table td {
+  font-size: 13px;
+  vertical-align: middle;
+}
+
+.history-table td.run-id {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 11px;
+  color: #495766;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.link-btn {
+  border: 0;
+  background: transparent;
+  color: #0f3d2e;
+  cursor: pointer;
+  padding: 2px 6px;
+  font-size: 12px;
+  text-decoration: underline;
+}
+
+.link-btn:hover {
+  color: #1c6447;
+}
+
+a.link-btn {
+  text-decoration: underline;
+}
+
+@media (max-width: 960px) {
+  .history-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 640px) {
   .shell {
     padding: 12px;
@@ -542,5 +668,9 @@ tbody tr:last-child td {
 
   .metric-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .history-filters {
+    grid-template-columns: 1fr;
   }
 }

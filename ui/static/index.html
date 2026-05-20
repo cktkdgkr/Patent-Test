@@ -28,6 +28,10 @@
           <form id="screenForm">
             <div class="field-grid">
               <label>
+                <span>User ID</span>
+                <input id="userId" name="user_id" placeholder="본인 ID/이메일" autocomplete="username" />
+              </label>
+              <label>
                 <span>Product ID</span>
                 <input name="product_id" value="enzyme_product_alpha" required />
               </label>
@@ -128,41 +132,106 @@
         <section class="result-pane" aria-label="screening output">
           <div class="section-head">
             <h2>결과</h2>
+            <div class="tabs" role="tablist">
+              <button type="button" class="tab active" data-tab="current" role="tab" aria-selected="true">현재 결과</button>
+              <button type="button" class="tab" data-tab="history" role="tab" aria-selected="false">히스토리</button>
+            </div>
             <button type="button" id="downloadJson" disabled>JSON</button>
           </div>
 
-          <div class="metric-row" id="metricRow">
-            <div><span>Total</span><strong>0</strong></div>
-            <div><span>Screened</span><strong>0</strong></div>
-            <div><span>Failed</span><strong>0</strong></div>
-            <div><span>High</span><strong>0</strong></div>
-            <div><span>Medium</span><strong>0</strong></div>
-            <div><span>Low</span><strong>0</strong></div>
-            <div><span>Safe</span><strong>0</strong></div>
+          <div class="tab-panel" data-panel="current">
+            <div class="metric-row" id="metricRow">
+              <div><span>Total</span><strong>0</strong></div>
+              <div><span>Screened</span><strong>0</strong></div>
+              <div><span>Failed</span><strong>0</strong></div>
+              <div><span>High</span><strong>0</strong></div>
+              <div><span>Medium</span><strong>0</strong></div>
+              <div><span>Low</span><strong>0</strong></div>
+              <div><span>Safe</span><strong>0</strong></div>
+            </div>
+
+            <div class="loaded-banner hidden" id="loadedBanner"></div>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Grade</th>
+                    <th>Patent</th>
+                    <th>Claims</th>
+                    <th>Options</th>
+                    <th>Confidence</th>
+                    <th>Reasoning</th>
+                  </tr>
+                </thead>
+                <tbody id="resultRows">
+                  <tr class="empty-row">
+                    <td colspan="6">결과 없음</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="detail-pane" id="detailPane">
+              <div class="detail-empty">특허 행을 선택하면 claim과 회피 후보가 표시됩니다.</div>
+            </div>
           </div>
 
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Grade</th>
-                  <th>Patent</th>
-                  <th>Claims</th>
-                  <th>Options</th>
-                  <th>Confidence</th>
-                  <th>Reasoning</th>
-                </tr>
-              </thead>
-              <tbody id="resultRows">
-                <tr class="empty-row">
-                  <td colspan="6">결과 없음</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <div class="tab-panel hidden" data-panel="history">
+            <div class="history-filters">
+              <label>
+                <span>User ID</span>
+                <input id="filterUserId" placeholder="본인만 보기" />
+              </label>
+              <label>
+                <span>Product ID</span>
+                <input id="filterProductId" placeholder="부분 일치" />
+              </label>
+              <label>
+                <span>최고 등급</span>
+                <select id="filterGrade">
+                  <option value="">전체</option>
+                  <option value="HIGH">HIGH</option>
+                  <option value="MEDIUM">MEDIUM</option>
+                  <option value="LOW">LOW</option>
+                  <option value="SAFE">SAFE</option>
+                </select>
+              </label>
+              <label>
+                <span>From</span>
+                <input id="filterFromDate" type="date" />
+              </label>
+              <label>
+                <span>To</span>
+                <input id="filterToDate" type="date" />
+              </label>
+              <div class="filter-actions">
+                <button type="button" id="applyFilter" class="primary">검색</button>
+                <button type="button" id="clearFilter">초기화</button>
+                <button type="button" id="refreshHistory">새로고침</button>
+              </div>
+            </div>
 
-          <div class="detail-pane" id="detailPane">
-            <div class="detail-empty">특허 행을 선택하면 claim과 회피 후보가 표시됩니다.</div>
+            <div class="history-summary" id="historySummary">목록을 불러오는 중...</div>
+
+            <div class="table-wrap">
+              <table class="history-table">
+                <thead>
+                  <tr>
+                    <th>일시</th>
+                    <th>User</th>
+                    <th>Product ID</th>
+                    <th>Patents</th>
+                    <th>Top Grade</th>
+                    <th>Run ID</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="historyRows">
+                  <tr class="empty-row"><td colspan="7">불러오는 중...</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
       </main>

@@ -9,9 +9,26 @@ const statusDot = document.querySelector(".dot");
 const metricRow = document.getElementById("metricRow");
 const resultRows = document.getElementById("resultRows");
 const detailPane = document.getElementById("detailPane");
+const userIdInput = document.getElementById("userId");
+const loadedBanner = document.getElementById("loadedBanner");
+const historyRows = document.getElementById("historyRows");
+const historySummary = document.getElementById("historySummary");
+const filterUserId = document.getElementById("filterUserId");
+const filterProductId = document.getElementById("filterProductId");
+const filterGrade = document.getElementById("filterGrade");
+const filterFromDate = document.getElementById("filterFromDate");
+const filterToDate = document.getElementById("filterToDate");
+const tabButtons = document.querySelectorAll(".tab");
+const tabPanels = document.querySelectorAll(".tab-panel");
+
+const USER_ID_STORAGE_KEY = "patentScreening.userId";
 
 let lastResponse = null;
 let selectedIndex = 0;
+
+initUserId();
+initTabs();
+initHistoryControls();
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -27,11 +44,12 @@ form.addEventListener("submit", async (event) => {
       content_base64: await fileToBase64(file),
     },
     enable_web_fetch: enableWebFetch.checked,
+    user_id: currentUserId(),
   });
 });
 
 runExample.addEventListener("click", async () => {
-  await runScreening("/api/example", {});
+  await runScreening("/api/example", { user_id: currentUserId() });
 });
 
 downloadJson.addEventListener("click", () => {
@@ -61,15 +79,179 @@ async function runScreening(endpoint, payload) {
     }
     lastResponse = data;
     selectedIndex = 0;
+    showLoadedBanner(null);
     renderReport(data.report);
     downloadJson.disabled = false;
     const failed = data.report.failed_candidates?.length || 0;
     setStatus(failed ? `완료 · 실패 ${failed}건` : "완료", failed ? "error" : "ready");
+    switchTab("current");
   } catch (error) {
     renderError(error.message);
     setStatus(error.message, "error");
   } finally {
     setControlsDisabled(false);
+  }
+}
+
+function initUserId() {
+  if (!userIdInput) return;
+  const stored = window.localStorage.getItem(USER_ID_STORAGE_KEY) || "";
+  if (stored) userIdInput.value = stored;
+  userIdInput.addEventListener("change", () => {
+    const value = userIdInput.value.trim();
+    if (value) window.localStorage.setItem(USER_ID_STORAGE_KEY, value);
+    else window.localStorage.removeItem(USER_ID_STORAGE_KEY);
+  });
+}
+
+function currentUserId() {
+  const value = (userIdInput && userIdInput.value || "").trim();
+  return value || null;
+}
+
+function initTabs() {
+  tabButtons.forEach((btn) => {
+    btn.addEventListener("click", () => switchTab(btn.dataset.tab));
+  });
+}
+
+function switchTab(name) {
+  tabButtons.forEach((btn) => {
+    const active = btn.dataset.tab === name;
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  tabPanels.forEach((panel) => {
+    panel.classList.toggle("hidden", panel.dataset.panel !== name);
+  });
+  if (name === "history") {
+    fetchHistory();
+  }
+}
+
+function initHistoryControls() {
+  document.getElementById("applyFilter")?.addEventListener("click", () => fetchHistory());
+  document.getElementById("refreshHistory")?.addEventListener("click", () => fetchHistory());
+  document.getElementById("clearFilter")?.addEventListener("click", () => {
+    filterUserId.value = "";
+    filterProductId.value = "";
+    filterGrade.value = "";
+    filterFromDate.value = "";
+    filterToDate.value = "";
+    fetchHistory();
+  });
+  [filterUserId, filterProductId, filterFromDate, filterToDate].forEach((el) => {
+    if (!el) return;
+    el.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        fetchHistory();
+      }
+    });
+  });
+}
+
+async function fetchHistory() {
+  if (!historyRows) return;
+  historyRows.innerHTML = '<tr class="empty-row"><td colspan="7">불러오는 중...</td></tr>';
+  historySummary.textContent = "불러오는 중...";
+  const params = new URLSearchParams();
+  if (filterUserId.value.trim()) params.set("user_id", filterUserId.value.trim());
+  if (filterProductId.value.trim()) params.set("product_id", filterProductId.value.trim());
+  if (filterGrade.value) params.set("grade", filterGrade.value);
+  if (filterFromDate.value) params.set("from_date", filterFromDate.value);
+  if (filterToDate.value) params.set("to_date", filterToDate.value);
+  try {
+    const response = await fetch(`/api/reports?${params.toString()}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "목록 조회 실패");
+    renderHistory(data);
+  } catch (error) {
+    historyRows.innerHTML = `<tr class="empty-row"><td colspan="7">오류: ${escapeHtml(error.message)}</td></tr>`;
+    historySummary.textContent = `오류: ${error.message}`;
+  }
+}
+
+function renderHistory(data) {
+  const reports = data.reports || [];
+  if (!reports.length) {
+    historyRows.innerHTML = '<tr class="empty-row"><td colspan="7">일치하는 리포트가 없습니다.</td></tr>';
+    historySummary.textContent = `총 ${data.total || 0}건`;
+    return;
+  }
+  historyRows.innerHTML = reports
+    .map((item) => {
+      const date = formatTimestamp(item.generated_at);
+      const grade = item.top_grade || "";
+      const screened = item.screened_count ?? "-";
+      const failed = item.failed_count || 0;
+      const patentsCell = failed > 0 ? `${screened} <span class="cell-sub">(실패 ${failed})</span>` : String(screened);
+      return `
+        <tr data-run="${escapeHtml(item.run_id)}">
+          <td>${escapeHtml(date)}</td>
+          <td>${escapeHtml(item.user_id || "-")}</td>
+          <td>${escapeHtml(item.product_id || "-")}</td>
+          <td>${patentsCell}</td>
+          <td>${grade ? `<span class="grade ${escapeHtml(grade)}">${escapeHtml(grade)}</span>` : "-"}</td>
+          <td class="run-id">${escapeHtml(item.run_id)}</td>
+          <td><button type="button" class="link-btn" data-action="load">보기</button> <a class="link-btn" href="/api/reports/${encodeURIComponent(item.run_id)}" download="${escapeHtml(item.run_id)}.json">JSON</a></td>
+        </tr>
+      `;
+    })
+    .join("");
+  historySummary.textContent = data.truncated
+    ? `${reports.length}건 표시 · 전체 ${data.total}건 (최대 ${data.limit}건까지 표시)`
+    : `총 ${data.total}건`;
+
+  historyRows.querySelectorAll('button[data-action="load"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const row = btn.closest("tr");
+      if (!row) return;
+      loadReport(row.dataset.run);
+    });
+  });
+}
+
+async function loadReport(runId) {
+  if (!runId) return;
+  setStatus("리포트 불러오는 중", "busy");
+  try {
+    const response = await fetch(`/api/reports/${encodeURIComponent(runId)}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "리포트 로드 실패");
+    lastResponse = { report: data.report, run_id: data.run_id, user_id: data.user_id, generated_at: data.generated_at };
+    selectedIndex = 0;
+    renderReport(data.report);
+    downloadJson.disabled = false;
+    showLoadedBanner(data);
+    setStatus(`히스토리 리포트 로드: ${data.run_id}`, "ready");
+    switchTab("current");
+  } catch (error) {
+    setStatus(error.message, "error");
+  }
+}
+
+function showLoadedBanner(data) {
+  if (!loadedBanner) return;
+  if (!data) {
+    loadedBanner.classList.add("hidden");
+    loadedBanner.textContent = "";
+    return;
+  }
+  const date = formatTimestamp(data.generated_at);
+  loadedBanner.classList.remove("hidden");
+  loadedBanner.innerHTML = `히스토리 로드: <strong>${escapeHtml(data.run_id)}</strong> · ${escapeHtml(data.product_id || "-")} · ${escapeHtml(date)} · User <strong>${escapeHtml(data.user_id || "-")}</strong>`;
+}
+
+function formatTimestamp(value) {
+  if (!value) return "-";
+  try {
+    const date = new Date(value);
+    if (isNaN(date.getTime())) return value;
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  } catch {
+    return value;
   }
 }
 

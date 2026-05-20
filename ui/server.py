@@ -9,12 +9,16 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
 UPLOAD_ROOT = ROOT / "build_log" / "ui_uploads"
 REPORT_ROOT = ROOT / "build_log" / "ui_reports"
 MAX_UPLOAD_BYTES = 12 * 1024 * 1024
+GRADE_ORDER = ("HIGH", "MEDIUM", "LOW", "SAFE")
+REPORTS_LIST_LIMIT = 200
+RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9_\-]+$")
 
 import sys
 
@@ -36,15 +40,17 @@ def run_screening_payload(payload: dict[str, Any]) -> dict[str, Any]:
         product=product,
         candidates_path=upload_path,
         allow_web_fetch=bool(payload.get("enable_web_fetch")),
+        user_id=_optional_string(payload.get("user_id")),
     )
 
 
-def run_example_payload() -> dict[str, Any]:
+def run_example_payload(user_id: str | None = None) -> dict[str, Any]:
     product = ProductSpec(**json.loads((ROOT / "examples" / "product_alpha.json").read_text(encoding="utf-8")))
     return _run_screening(
         product=product,
         candidates_path=ROOT / "examples" / "patent_candidates_sequence.csv",
         allow_web_fetch=False,
+        user_id=user_id,
     )
 
 
@@ -52,6 +58,7 @@ def _run_screening(
     product: ProductSpec,
     candidates_path: Path,
     allow_web_fetch: bool,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     candidates = read_patent_candidates(str(candidates_path))
     report = asyncio.run(
@@ -64,12 +71,150 @@ def _run_screening(
     )
     REPORT_ROOT.mkdir(parents=True, exist_ok=True)
     report_path = REPORT_ROOT / f"{report.run_id}.json"
-    report_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
-    return {
-        "report": json.loads(report.model_dump_json()),
-        "report_path": str(report_path.relative_to(ROOT)),
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+    report_payload = json.loads(report.model_dump_json())
+    generated_at = datetime.now(timezone.utc).isoformat()
+    summary = report_payload.get("summary_by_grade") or {}
+    wrapper = {
+        "version": 2,
+        "run_id": report.run_id,
+        "user_id": user_id,
+        "generated_at": generated_at,
+        "product_id": product.product_id,
+        "summary_by_grade": summary,
+        "total_candidates": report_payload.get("total_candidates"),
+        "screened_count": report_payload.get("screened_count"),
+        "failed_count": len(report_payload.get("failed_candidates") or []),
+        "top_grade": _top_grade(summary),
+        "report": report_payload,
     }
+    report_path.write_text(json.dumps(wrapper, indent=2, ensure_ascii=False), encoding="utf-8")
+    return {
+        "report": report_payload,
+        "report_path": str(report_path.relative_to(ROOT)),
+        "generated_at": generated_at,
+        "user_id": user_id,
+        "run_id": report.run_id,
+    }
+
+
+def list_reports_payload(query: dict[str, str]) -> dict[str, Any]:
+    user_id = (query.get("user_id") or "").strip() or None
+    product_id = (query.get("product_id") or "").strip().lower() or None
+    grade = (query.get("grade") or "").strip().upper() or None
+    from_date = (query.get("from_date") or "").strip() or None
+    to_date = (query.get("to_date") or "").strip() or None
+    if grade and grade not in GRADE_ORDER:
+        raise UIRequestError("grade must be HIGH, MEDIUM, LOW, or SAFE")
+
+    items: list[dict[str, Any]] = []
+    if REPORT_ROOT.exists():
+        for path in REPORT_ROOT.glob("*.json"):
+            try:
+                meta = _read_report_file(path, include_report=False)
+            except Exception:
+                continue
+            if user_id and (meta.get("user_id") or "") != user_id:
+                continue
+            if product_id and product_id not in (meta.get("product_id") or "").lower():
+                continue
+            if grade:
+                if not (meta.get("summary_by_grade") or {}).get(grade):
+                    continue
+            ga = meta.get("generated_at") or ""
+            if from_date and ga[:10] < from_date:
+                continue
+            if to_date and ga[:10] > to_date:
+                continue
+            items.append(meta)
+
+    items.sort(key=lambda x: x.get("generated_at") or "", reverse=True)
+    truncated = len(items) > REPORTS_LIST_LIMIT
+    return {
+        "reports": items[:REPORTS_LIST_LIMIT],
+        "total": len(items),
+        "truncated": truncated,
+        "limit": REPORTS_LIST_LIMIT,
+    }
+
+
+def get_report_payload(run_id: str) -> dict[str, Any]:
+    if not RUN_ID_PATTERN.match(run_id):
+        raise UIRequestError("Invalid run_id")
+    path = REPORT_ROOT / f"{run_id}.json"
+    if not path.exists():
+        raise UIRequestError("Report not found")
+    wrapper = _read_report_file(path, include_report=True)
+    return {
+        "report": wrapper.get("report") or {},
+        "run_id": wrapper.get("run_id") or run_id,
+        "user_id": wrapper.get("user_id"),
+        "generated_at": wrapper.get("generated_at"),
+        "product_id": wrapper.get("product_id"),
+    }
+
+
+def _read_report_file(path: Path, include_report: bool) -> dict[str, Any]:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(raw, dict) and raw.get("version") == 2 and "report" in raw:
+        meta = {
+            "run_id": raw.get("run_id") or path.stem,
+            "user_id": raw.get("user_id"),
+            "generated_at": raw.get("generated_at"),
+            "product_id": raw.get("product_id"),
+            "summary_by_grade": raw.get("summary_by_grade") or {},
+            "total_candidates": raw.get("total_candidates"),
+            "screened_count": raw.get("screened_count"),
+            "failed_count": raw.get("failed_count"),
+            "top_grade": raw.get("top_grade"),
+        }
+        if include_report:
+            meta["report"] = raw.get("report") or {}
+        return meta
+
+    # Legacy format: the file IS the raw report.
+    summary = (raw.get("summary_by_grade") if isinstance(raw, dict) else None) or {}
+    meta = {
+        "run_id": (raw.get("run_id") if isinstance(raw, dict) else None) or path.stem,
+        "user_id": None,
+        "generated_at": _legacy_generated_at(path, raw),
+        "product_id": _legacy_product_id(raw),
+        "summary_by_grade": summary,
+        "total_candidates": raw.get("total_candidates") if isinstance(raw, dict) else None,
+        "screened_count": raw.get("screened_count") if isinstance(raw, dict) else None,
+        "failed_count": len((raw.get("failed_candidates") or []) if isinstance(raw, dict) else []),
+        "top_grade": _top_grade(summary),
+    }
+    if include_report:
+        meta["report"] = raw if isinstance(raw, dict) else {}
+    return meta
+
+
+def _legacy_generated_at(path: Path, raw: Any) -> str:
+    if isinstance(raw, dict):
+        value = raw.get("generated_at") or raw.get("created_at")
+        if isinstance(value, str) and value:
+            return value
+    mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+    return mtime.isoformat()
+
+
+def _legacy_product_id(raw: Any) -> str | None:
+    if not isinstance(raw, dict):
+        return None
+    product = raw.get("product")
+    if isinstance(product, dict):
+        value = product.get("product_id")
+        if isinstance(value, str):
+            return value
+    return None
+
+
+def _top_grade(summary: dict[str, Any] | None) -> str | None:
+    summary = summary or {}
+    for grade in GRADE_ORDER:
+        if summary.get(grade):
+            return grade
+    return None
 
 
 def _product_from_payload(data: dict[str, Any]) -> ProductSpec:
@@ -155,19 +300,54 @@ class PatentUIHandler(BaseHTTPRequestHandler):
     server_version = "PatentHarnessUI/0.1"
 
     def do_GET(self) -> None:
-        if self.path == "/api/health":
+        parsed = urlsplit(self.path)
+        path = parsed.path
+        if path == "/api/health":
             self._send_json({"ok": True})
+            return
+        if path == "/api/reports":
+            self._handle_list_reports(parsed.query)
+            return
+        match = re.match(r"^/api/reports/([A-Za-z0-9_\-]+)$", path)
+        if match:
+            self._handle_get_report(match.group(1))
             return
         self._serve_static()
 
     def do_POST(self) -> None:
-        if self.path == "/api/screen":
+        path = urlsplit(self.path).path
+        if path == "/api/screen":
             self._handle_json_action(run_screening_payload)
             return
-        if self.path == "/api/example":
-            self._handle_json_action(lambda _payload: run_example_payload())
+        if path == "/api/example":
+            self._handle_json_action(
+                lambda payload: run_example_payload(user_id=_optional_string((payload or {}).get("user_id")))
+            )
             return
         self._send_json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
+
+    def _handle_list_reports(self, query_string: str) -> None:
+        parsed = parse_qs(query_string, keep_blank_values=False)
+        query = {key: values[0] for key, values in parsed.items() if values}
+        try:
+            self._send_json(list_reports_payload(query))
+        except UIRequestError as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+        except Exception as exc:  # pragma: no cover - surfaced to client
+            self._send_json({"error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def _handle_get_report(self, run_id: str) -> None:
+        try:
+            self._send_json(get_report_payload(run_id))
+        except UIRequestError as exc:
+            status = (
+                HTTPStatus.NOT_FOUND
+                if str(exc).lower().endswith("not found")
+                else HTTPStatus.BAD_REQUEST
+            )
+            self._send_json({"error": str(exc)}, status=status)
+        except Exception as exc:  # pragma: no cover - surfaced to client
+            self._send_json({"error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def log_message(self, format: str, *args: Any) -> None:
         print(f"[ui] {self.address_string()} - {format % args}")
