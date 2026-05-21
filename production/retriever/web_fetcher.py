@@ -115,29 +115,45 @@ class _ClaimSectionExtractor(HTMLParser):
         return "\n".join(self.parts)
 
 
-def fetch_google_patents_claims(identifier: str, timeout_seconds: int = 20) -> tuple[str, str]:
+def fetch_google_patents_claims(
+    identifier: str,
+    timeout_seconds: int = 20,
+    search_aliases: tuple[str, ...] = (),
+    country_hint: str | None = None,
+) -> tuple[str, str]:
     """
     Fetches claims text from a public Google Patents page.
     This is a fast preview connector, not an official legal-record source.
 
-    On a 404 (Google does not have that exact identifier), the fetcher
-    automatically retries with the common kind-code suffixes ``A``, ``A1``,
-    ``B1``, ``B2`` so that applications/publications submitted without a
-    kind code (e.g. ``KR1020257013439`` -> ``KR1020257013439A``) still
-    resolve. Identifiers that already end in a kind code letter are tried
-    only as-is.
+    Resolution strategy:
+
+    1. Direct fetch of ``identifier`` against ``/patent/<id>/en``.
+    2. On 404 and when ``identifier`` lacks a kind-code suffix, retry with
+       ``A`` / ``A1`` / ``B1`` / ``B2`` appended. Sequence designed for the
+       typical KR/CN/JP/EP publication and granted forms.
+    3. On 404 across every kind-code variant, fall back to Google Patents'
+       internal search using each of ``search_aliases`` (and ``identifier``)
+       as the query. The first patent ID returned whose country prefix
+       matches ``country_hint`` (when provided) is fetched directly. This
+       recovers cases where the supplied identifier is an application or
+       internal number but the corresponding publication does live on
+       Google Patents under a different ID.
+    4. If steps 1-3 all yield nothing, raise ``WebPatentFetchError`` whose
+       message lists every variant tried, so the caller can tell whether
+       the patent is missing from Google Patents entirely or simply
+       indexed under a less common form.
     """
     clean_identifier = Sanitizer.sanitize(identifier.strip())
     if not clean_identifier:
         raise WebPatentFetchError("empty patent identifier")
 
-    candidates = [clean_identifier]
+    direct_candidates = [clean_identifier]
     if not _GOOGLE_KIND_CODE_TAIL.search(clean_identifier):
-        candidates.extend(clean_identifier + suffix for suffix in _GOOGLE_KIND_CODE_RETRIES)
+        direct_candidates.extend(clean_identifier + suffix for suffix in _GOOGLE_KIND_CODE_RETRIES)
 
     last_error: Exception | None = None
     last_url: str | None = None
-    for candidate in candidates:
+    for candidate in direct_candidates:
         url, html, error = _fetch_google_patents_html(candidate, timeout_seconds)
         last_url = url
         if error is None:
@@ -146,15 +162,49 @@ def fetch_google_patents_claims(identifier: str, timeout_seconds: int = 20) -> t
         if not _is_not_found_error(error):
             raise WebPatentFetchError(f"Could not fetch {url}: {error}") from error
 
-    tried = ", ".join(candidates)
+    # Direct fetch exhausted. Try Google Patents search with each alias.
+    search_queries: list[str] = []
+    for raw in (clean_identifier, *search_aliases):
+        if raw:
+            cleaned = str(raw).strip()
+            if cleaned and cleaned not in search_queries:
+                search_queries.append(cleaned)
+
+    searched_for: list[str] = []
+    for query in search_queries:
+        searched_for.append(query)
+        try:
+            found_id = _search_google_patents(query, country_hint, timeout_seconds)
+        except WebPatentFetchError:
+            continue
+        if not found_id or found_id in direct_candidates:
+            continue
+        url, html, error = _fetch_google_patents_html(found_id, timeout_seconds)
+        if error is None:
+            logger.info("Recovered %s via Google Patents search -> %s", clean_identifier, found_id)
+            return url, _extract_and_normalize(html)
+        last_url = url
+        last_error = error
+
+    tried_direct = ", ".join(direct_candidates)
+    tried_search = ", ".join(searched_for) if searched_for else "(none)"
     raise WebPatentFetchError(
-        f"Could not fetch {last_url}: HTTP Error 404: Not Found "
-        f"(tried Google Patents IDs: {tried})"
+        f"Google Patents has no entry for {clean_identifier}. "
+        f"Tried direct IDs: {tried_direct}. Tried search queries: {tried_search}. "
+        f"This is common for recent applications (filed within ~18 months, not yet "
+        f"published) and for raw application/serial numbers that lack a public "
+        f"publication on Google Patents. Workaround: add a 'claim_text' column to "
+        f"the CSV with the claim text pasted directly."
     ) from last_error
 
 
 _GOOGLE_KIND_CODE_RETRIES = ("A", "A1", "B1", "B2")
 _GOOGLE_KIND_CODE_TAIL = re.compile(r"[A-Za-z]\d?$")
+_GOOGLE_SEARCH_PATENT_LINK = re.compile(r'/patent/([A-Z]{2}[A-Z0-9]+)/(?:en|ko)\b')
+_GOOGLE_PUBLICATION_NUMBER_TAG = re.compile(
+    r'"publication_number"\s*:\s*"([A-Z]{2}[A-Z0-9]+)"'
+)
+_GOOGLE_REDIRECT_PATENT_PATH = re.compile(r"/patent/([A-Z]{2}[A-Z0-9]+)/")
 
 
 def _fetch_google_patents_html(
@@ -173,6 +223,49 @@ def _fetch_google_patents_html(
             return url, response.read().decode("utf-8", errors="replace"), None
     except urllib.error.URLError as exc:
         return url, None, exc
+
+
+def _search_google_patents(
+    query: str, country_hint: str | None, timeout_seconds: int
+) -> str | None:
+    """Run Google Patents' built-in search and return the first patent ID
+    matching the optional country hint (or the first overall hit if no hint
+    is provided). Returns ``None`` when nothing is found.
+    """
+    url = "https://patents.google.com/?" + urllib.parse.urlencode({"q": query})
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+        },
+    )
+    context = _build_ssl_context()
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds, context=context) as response:
+            final_url = response.geturl()
+            html = response.read().decode("utf-8", errors="replace")
+    except urllib.error.URLError:
+        return None
+
+    # Google sometimes redirects a single exact match to the patent page directly.
+    redirect_match = _GOOGLE_REDIRECT_PATENT_PATH.search(final_url)
+    if redirect_match:
+        return redirect_match.group(1)
+
+    candidates: list[str] = []
+    candidates.extend(_GOOGLE_PUBLICATION_NUMBER_TAG.findall(html))
+    candidates.extend(_GOOGLE_SEARCH_PATENT_LINK.findall(html))
+    if not candidates:
+        return None
+
+    if country_hint:
+        cc = country_hint.strip().upper()
+        if cc:
+            for candidate in candidates:
+                if candidate.startswith(cc):
+                    return candidate
+    return candidates[0]
 
 
 def _is_not_found_error(error: Exception) -> bool:

@@ -1,0 +1,7 @@
+candidate_id,특허 출원 번호,국가코드,claim_text
+hyaluronidase_001,2025-10536859,CN,"1. [여기에 청구항 1 본문 붙여넣기]
+2. [여기에 청구항 2 본문 붙여넣기]
+3. [필요한 만큼 추가]"
+hyaluronidase_002,10-2025-7013439,KR,"1. [예시] An enzyme having at least 80% sequence identity to SEQ ID NO:1, wherein the enzyme exhibits hyaluronidase activity at pH 6.0 to 8.0.
+2. The enzyme of claim 1, wherein the enzyme retains at least 70% activity at 50 degrees C."
+hyaluronidase_003,10-2024-0087254,KR,"1. [복수 줄 청구항은 셀 안에서 줄바꿈으로 작성 가능 (Excel은 셀 안에 Alt+Enter)]"

@@ -24,11 +24,17 @@ def fetch_patent_by_identifier(
     identifier: str,
     run_id: Optional[str] = None,
     allow_web: bool = False,
+    country_hint: Optional[str] = None,
+    search_aliases: tuple[str, ...] = (),
 ) -> PatentFetchResult:
     """
     Resolves a patent/publication/application identifier to local claim text.
-    The current MVP supports local cache and mock patents; external patent
-    database connectors can plug in behind this interface next.
+
+    ``country_hint`` and ``search_aliases`` are only used when ``allow_web``
+    is true and the direct Google Patents fetch fails. They let the search
+    fallback re-query with alternative spellings (raw dashed publication
+    number, alternate kind codes, etc.) and prefer hits that match the
+    expected office prefix.
     """
     clean_identifier = Sanitizer.sanitize(identifier.strip())
     if not clean_identifier:
@@ -52,7 +58,11 @@ def fetch_patent_by_identifier(
             )
 
     if allow_web:
-        source_url, raw_text = fetch_google_patents_claims(clean_identifier)
+        source_url, raw_text = fetch_google_patents_claims(
+            clean_identifier,
+            search_aliases=search_aliases,
+            country_hint=country_hint,
+        )
         cache_path = write_web_cache(clean_identifier, raw_text)
         _trace_fetch(run_id, clean_identifier, cache_path, raw_text)
         return PatentFetchResult(

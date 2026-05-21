@@ -133,10 +133,16 @@ async def _screen_candidate(
         )
     identifier = candidate.combined_identifier()
     if identifier:
+        aliases: list[str] = []
+        for raw in (candidate.publication_number, candidate.application_number):
+            if raw and raw not in aliases:
+                aliases.append(raw)
         fetch_result = fetch_patent_by_identifier(
             identifier,
             run_id=run_id,
             allow_web=allow_web_fetch,
+            country_hint=candidate.country_code,
+            search_aliases=tuple(aliases),
         )
         return await screen_product_against_patent_text(
             product=product,
