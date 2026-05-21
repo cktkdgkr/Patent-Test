@@ -119,9 +119,48 @@ def fetch_google_patents_claims(identifier: str, timeout_seconds: int = 20) -> t
     """
     Fetches claims text from a public Google Patents page.
     This is a fast preview connector, not an official legal-record source.
+
+    On a 404 (Google does not have that exact identifier), the fetcher
+    automatically retries with the common kind-code suffixes ``A``, ``A1``,
+    ``B1``, ``B2`` so that applications/publications submitted without a
+    kind code (e.g. ``KR1020257013439`` -> ``KR1020257013439A``) still
+    resolve. Identifiers that already end in a kind code letter are tried
+    only as-is.
     """
     clean_identifier = Sanitizer.sanitize(identifier.strip())
-    url = f"https://patents.google.com/patent/{urllib.parse.quote(clean_identifier)}/en"
+    if not clean_identifier:
+        raise WebPatentFetchError("empty patent identifier")
+
+    candidates = [clean_identifier]
+    if not _GOOGLE_KIND_CODE_TAIL.search(clean_identifier):
+        candidates.extend(clean_identifier + suffix for suffix in _GOOGLE_KIND_CODE_RETRIES)
+
+    last_error: Exception | None = None
+    last_url: str | None = None
+    for candidate in candidates:
+        url, html, error = _fetch_google_patents_html(candidate, timeout_seconds)
+        last_url = url
+        if error is None:
+            return url, _extract_and_normalize(html)
+        last_error = error
+        if not _is_not_found_error(error):
+            raise WebPatentFetchError(f"Could not fetch {url}: {error}") from error
+
+    tried = ", ".join(candidates)
+    raise WebPatentFetchError(
+        f"Could not fetch {last_url}: HTTP Error 404: Not Found "
+        f"(tried Google Patents IDs: {tried})"
+    ) from last_error
+
+
+_GOOGLE_KIND_CODE_RETRIES = ("A", "A1", "B1", "B2")
+_GOOGLE_KIND_CODE_TAIL = re.compile(r"[A-Za-z]\d?$")
+
+
+def _fetch_google_patents_html(
+    identifier: str, timeout_seconds: int
+) -> tuple[str, str | None, Exception | None]:
+    url = f"https://patents.google.com/patent/{urllib.parse.quote(identifier)}/en"
     request = urllib.request.Request(
         url,
         headers={
@@ -131,12 +170,19 @@ def fetch_google_patents_claims(identifier: str, timeout_seconds: int = 20) -> t
     context = _build_ssl_context()
     try:
         with urllib.request.urlopen(request, timeout=timeout_seconds, context=context) as response:
-            html = response.read().decode("utf-8", errors="replace")
+            return url, response.read().decode("utf-8", errors="replace"), None
     except urllib.error.URLError as exc:
-        raise WebPatentFetchError(f"Could not fetch {url}: {exc}") from exc
+        return url, None, exc
 
-    claims_text = extract_claims_from_google_patents_html(html)
-    return url, claims_text
+
+def _is_not_found_error(error: Exception) -> bool:
+    if isinstance(error, urllib.error.HTTPError):
+        return error.code == 404
+    return False
+
+
+def _extract_and_normalize(html: str) -> str:
+    return extract_claims_from_google_patents_html(html)
 
 
 def extract_claims_from_google_patents_html(html: str) -> str:
