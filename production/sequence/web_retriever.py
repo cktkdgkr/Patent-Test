@@ -361,7 +361,55 @@ def _extract_sequences_from_payload(payload: bytes, source_label: str) -> Tuple[
 
     text = _decode_bytes(payload)
     _merge_extracted_sequences(sequences, sources, extract_reference_sequences(text), source_label)
+    # HTML payloads (most patent pages) usually wrap sequences in <div>/<p>
+    # tags that break the regex extractors. Run a second pass against an
+    # HTML-stripped copy so 'SEQ ID NO:1<br>MKTAYI...' parses.
+    if _looks_like_html(text):
+        stripped = _strip_html_for_sequence_extraction(text)
+        if stripped != text:
+            _merge_extracted_sequences(
+                sequences,
+                sources,
+                extract_reference_sequences(stripped),
+                f"{source_label} [html-stripped]",
+            )
     return sequences, sources
+
+
+def _looks_like_html(text: str) -> bool:
+    snippet = text[:2048].lower()
+    return "<html" in snippet or "<!doctype html" in snippet or "<section" in snippet
+
+
+_HTML_BLOCK_TAGS = re.compile(
+    r"</?(?:p|div|br|li|tr|td|section|article|h[1-6]|pre|span|seq|sequence)\b[^>]*>",
+    flags=re.IGNORECASE,
+)
+_HTML_SCRIPT_STYLE = re.compile(
+    r"<(script|style)\b[^>]*>.*?</\1>", flags=re.DOTALL | re.IGNORECASE
+)
+_HTML_ENTITY = re.compile(r"&(nbsp|amp|lt|gt|quot|#39|#x27);")
+_HTML_ENTITIES = {
+    "nbsp": " ", "amp": "&", "lt": "<", "gt": ">",
+    "quot": '"', "#39": "'", "#x27": "'",
+}
+
+
+def _strip_html_for_sequence_extraction(text: str) -> str:
+    """Strip HTML so block tags become line breaks (preserving sequence
+    boundaries) and inline tags vanish. Lossy by design: returns a plain
+    text view suitable only for sequence/text regex extraction.
+    """
+    text = _HTML_SCRIPT_STYLE.sub(" ", text)
+    text = _HTML_BLOCK_TAGS.sub("\n", text)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = _HTML_ENTITY.sub(
+        lambda m: _HTML_ENTITIES.get(m.group(1), m.group(0)), text
+    )
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n[ \t]+", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 def _merge_extracted_sequences(
@@ -371,7 +419,14 @@ def _merge_extracted_sequences(
     source_label: str,
 ) -> None:
     for ref, sequence in extracted.items():
-        if sequence and ref not in sequences:
+        if not sequence:
+            continue
+        # Prefer longer extractions: a multi-paragraph HTML body often yields
+        # the first sequence chunk through the raw-HTML pass and the full
+        # concatenated sequence through the HTML-stripped pass. First-write
+        # would keep the truncated version.
+        existing = sequences.get(ref, "")
+        if len(sequence) > len(existing):
             sequences[ref] = sequence
             sources[ref] = source_label
 

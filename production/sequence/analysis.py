@@ -481,7 +481,156 @@ def _extract_inline_seq_ids(text: str) -> Dict[str, str]:
         seq = normalize_amino_acid_sequence(match.group("seq"))
         if len(seq) >= 10:
             sequences[f"SEQ ID NO:{int(match.group('num'))}"] = seq
+    sequences.update(_extract_seq_ids_following_marker(text))
     return sequences
+
+
+_AMINO_ACID_STANDARD = set("ACDEFGHIKLMNPQRSTVWY")
+_AMINO_ACID_EXTENSIONS = set("BJOUXZ*")
+_AMINO_ACID_ALLOWED = _AMINO_ACID_STANDARD | _AMINO_ACID_EXTENSIONS
+_SEQ_ID_MARKER_RE = re.compile(
+    r"\bSEQ\s+ID\s+NO\s*[:.]?\s*(\d+)\b",
+    flags=re.IGNORECASE,
+)
+_UPPER_CHUNK_RE = re.compile(r"[A-Z]{8,}")
+_UPPER_CONTINUATION_RE = re.compile(r"[A-Z]{2,}")
+
+# Common ALL-CAPS English/patent words that fall inside the amino-acid
+# alphabet (D, E, T, A, I, L, M, N, S, C, R, P, ...) and would otherwise be
+# harvested as fake sequence. Listed explicitly because the alphabet alone
+# cannot distinguish "DETAILEDDESCRIPTION" from a real protein sequence.
+_PROSE_WORDS_TO_REJECT = {
+    "DETAILED", "DESCRIPTION", "DETAILEDDESCRIPTION",
+    "EXAMPLES", "EMBODIMENTS", "BACKGROUND", "SUMMARY", "ABSTRACT",
+    "CLAIMS", "DEFINITIONS", "SEQUENCES", "TABLE", "FIGURE", "REFERENCE",
+    "INVENTION", "ACCORDING", "WHEREIN", "COMPRISING", "INCLUDING",
+    "PREFERABLY", "SUBSTANTIALLY", "PROTEIN", "PROTEINS", "ENZYME",
+    "ENZYMES", "VARIANT", "VARIANTS", "POLYPEPTIDE", "POLYPEPTIDES",
+    "MUTANT", "MUTANTS", "METHOD", "METHODS", "SEQUENCE", "ARTIFICIAL",
+    "ISOLATED", "RECOMBINANT", "EXPRESSION", "DEMONSTRATES",
+    "DESCRIBED", "DISCLOSED", "PROVIDED", "ABOVE", "BELOW", "FORMULA",
+    "TECHNICAL", "FIELD", "RELATES", "PRIOR", "ART", "OBJECT", "PRESENT",
+    "ASPECT", "EXAMPLE", "FOLLOWS", "FOLLOWING", "SHOWS", "SHOWN",
+    "INCLUDE", "INCLUDES", "INCLUDED", "RESPECTIVELY", "PARTICULARLY",
+    "INSTANCE", "GENERALLY", "SPECIFICALLY", "ADDITIONALLY",
+}
+
+
+def _extract_seq_ids_following_marker(text: str) -> Dict[str, str]:
+    """Tolerant extractor that pairs each ``SEQ ID NO:N`` marker with the next
+    contiguous run of amino-acid-letter blocks.
+
+    Handles patent-description shapes the strict inline pattern misses:
+    ``SEQ ID NO:1`` followed by free-form sentences (``is shown below:``)
+    then the sequence on subsequent lines, and ST.25/ST.26 style position
+    numbers interleaved with the sequence (``1 MKTAYIAKQR ...``).
+    """
+    sequences: Dict[str, str] = {}
+    markers = list(_SEQ_ID_MARKER_RE.finditer(text))
+    for index, marker in enumerate(markers):
+        seq_id = f"SEQ ID NO:{int(marker.group(1))}"
+        if seq_id in sequences:
+            continue
+        start = marker.end()
+        end = markers[index + 1].start() if index + 1 < len(markers) else len(text)
+        chunk = text[start : min(end, start + 50_000)]
+        sequence = _harvest_amino_acid_chunk(chunk)
+        if len(sequence) >= 12 and _looks_like_real_sequence(sequence):
+            sequences[seq_id] = sequence
+    return sequences
+
+
+def _harvest_amino_acid_chunk(chunk: str) -> str:
+    """Walk the chunk collecting runs of 8+ uppercase letters that look like
+    amino-acid sequence, stopping when the text shifts to ordinary prose.
+
+    Heuristics:
+    - Each run is accepted only if every letter is in the *standard* 20
+      amino-acid alphabet. Letters outside that set (B, J, O, U, X, Z, plus
+      anything we don't expect) immediately flag the run as prose.
+    - A run that matches a common ALL-CAPS English/patent word
+      (``DETAILED``, ``DESCRIPTION``, ``EXAMPLES`` ...) is rejected.
+    - Position numbers and whitespace between runs are kept; lowercase
+      content between runs ends collection (we've walked into prose).
+    """
+    collected: List[str] = []
+    cursor = 0
+    saw_first_chunk = False
+    rejections_before_first_chunk = 0
+    while True:
+        match = _UPPER_CHUNK_RE.search(chunk, cursor)
+        if not match:
+            break
+        raw = match.group(0)
+        # Only the standard 20 amino acids count toward validity; extensions
+        # (BJOUXZ*) are rare in real sequences and common in English prose.
+        if any(c not in _AMINO_ACID_STANDARD for c in raw):
+            if saw_first_chunk:
+                break
+            rejections_before_first_chunk += 1
+            if rejections_before_first_chunk >= 5:
+                break
+            cursor = match.end()
+            continue
+        if raw in _PROSE_WORDS_TO_REJECT:
+            if saw_first_chunk:
+                break
+            cursor = match.end()
+            continue
+        # If a previous chunk exists, ensure no prose snuck in between.
+        if collected:
+            preceding = chunk[max(0, match.start() - 5) : match.start()]
+            if any(c.islower() for c in preceding):
+                break
+        saw_first_chunk = True
+        collected.append(raw)
+        cursor = match.end()
+        if sum(len(piece) for piece in collected) > 50_000:
+            break
+
+    # After locking onto the first long chunk, the sequence often continues
+    # in shorter trailing blocks separated by position numbers and whitespace
+    # (``MKTAYIAKQR ... SLLITKE`` where the final block is only 7 letters).
+    # Scan forward and accept any 2+-letter uppercase run as continuation,
+    # stopping at the first lowercase character (= prose).
+    if collected:
+        for match in _UPPER_CONTINUATION_RE.finditer(chunk, cursor):
+            raw = match.group(0)
+            # Stop if any letter falls outside the standard amino-acid set.
+            if any(c not in _AMINO_ACID_STANDARD for c in raw):
+                break
+            # Stop if prose snuck in (lowercase chars between us and previous).
+            preceding = chunk[max(0, match.start() - 5) : match.start()]
+            if any(c.islower() for c in preceding):
+                break
+            # Skip dictionary words even at the tail.
+            if raw in _PROSE_WORDS_TO_REJECT:
+                break
+            collected.append(raw)
+    return "".join(collected)
+
+
+def _looks_like_real_sequence(sequence: str) -> bool:
+    """Cheap distribution check: real proteins use a broad alphabet (>=5
+    distinct standard amino acids) and avoid being dominated by any single
+    letter beyond ~60% (which is characteristic of prose acronyms like
+    'AAAAAAAA' or homopolymer-shaped strings).
+    """
+    if not sequence:
+        return False
+    standard_chars = [c for c in sequence if c in _AMINO_ACID_STANDARD]
+    if len(standard_chars) < 12:
+        return False
+    distinct = set(standard_chars)
+    if len(distinct) < 5:
+        return False
+    # Allow synthetic single-residue test sequences only when long enough to
+    # be intentional (>= 20 residues): real homopolymers exist but rarely
+    # appear at < 12-residue scale outside prose-disguised tokens.
+    dominant_freq = max(standard_chars.count(letter) for letter in distinct) / len(standard_chars)
+    if dominant_freq > 0.85 and len(standard_chars) < 20:
+        return False
+    return True
 
 
 def _seq_id_near_match(text: str, start: int, end: int, seq_refs: List[str]) -> Optional[str]:
@@ -815,7 +964,11 @@ def _inline_sequence_after_marker(block: str) -> str:
 
 
 def _st25_400_sequence_to_one_letter(block: str) -> str:
-    match = re.search(r"<400>\s*SEQUENCE:\s*\d+(?P<body>.*)", block, flags=re.IGNORECASE | re.DOTALL)
+    match = re.search(
+        r"<400>\s*(?:SEQUENCE\s*:\s*)?\d+(?P<body>.*)",
+        block,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
     return _sequence_lines_to_one_letter(match.group("body")) if match else ""
 
 
@@ -826,12 +979,37 @@ def _three_letter_sequence_to_one_letter(block: str) -> str:
 
 
 def _sequence_lines_to_one_letter(text: str) -> str:
+    """Convert a sequence-listing body (one- or three-letter codes
+    optionally interleaved with position numbers) into a single-letter
+    amino-acid string.
+
+    Stop at the first line that clearly isn't a sequence line. Sequence
+    lines either have only digits/whitespace/uppercase content, or
+    three-letter codes from THREE_LETTER_AMINO_ACIDS. Any line containing
+    a longer mixed-case word (``EXAMPLES``, ``demonstrates``, ...) ends
+    extraction — otherwise letters from prose like
+    ``E. coli`` get appended as ``E``, ``I`` and inflate the sequence.
+    """
     residues: List[str] = []
-    for token in re.findall(r"[A-Za-z]{1,3}", text.upper()):
-        if len(token) == 1 and token in AMINO_ACID_ALPHABET:
-            residues.append(token)
-        elif token in THREE_LETTER_AMINO_ACIDS:
-            residues.append(THREE_LETTER_AMINO_ACIDS[token])
+    for line in text.splitlines():
+        tokens = re.findall(r"[A-Za-z]+", line)
+        if not tokens:
+            continue
+        # Reject lines that contain non-sequence tokens: any token of length
+        # 2 or >=4 that is not a known three-letter amino acid is prose.
+        if any(
+            len(tok) >= 4 or (len(tok) == 2 and tok.upper() not in THREE_LETTER_AMINO_ACIDS)
+            for tok in tokens
+            if tok.upper() not in THREE_LETTER_AMINO_ACIDS
+            and not (len(tok) == 1 and tok.upper() in AMINO_ACID_ALPHABET)
+        ):
+            break
+        for token in tokens:
+            upper = token.upper()
+            if len(upper) == 1 and upper in AMINO_ACID_ALPHABET:
+                residues.append(upper)
+            elif upper in THREE_LETTER_AMINO_ACIDS:
+                residues.append(THREE_LETTER_AMINO_ACIDS[upper])
     return "".join(residues)
 
 
