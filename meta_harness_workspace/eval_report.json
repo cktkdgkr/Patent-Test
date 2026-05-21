@@ -9,7 +9,7 @@
     "recall": 1.0,
     "precision": 1.0,
     "critical_misses": 0,
-    "ece": 0.305,
+    "ece": 0.3183333333333333,
     "per_category_recall": {
       "percent_identity": 1.0,
       "functional_claim": 1.0,
