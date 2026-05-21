@@ -125,6 +125,34 @@ connector reads claims from Google Patents, writes fetched claim text under
 sequences from public web sequence sources. Use this as a convenience connector,
 not as the authoritative legal record.
 
+### HTTPS on corporate networks (SSL inspection)
+
+On a corporate network that performs SSL inspection (Zscaler / Bluecoat /
+Cisco Umbrella / similar), outbound `https://` requests reach Python with a
+re-signed certificate from the company's internal CA rather than the upstream
+provider's real certificate. A bare Python install does not trust that CA and
+fails with `SSL: CERTIFICATE_VERIFY_FAILED` (often noting
+`Missing Authority Key Identifier`).
+
+Three resolution paths, in order of preference:
+
+1. **Use the OS trust store via `truststore`** (recommended; automatic).
+   `pip install -r requirements.txt` pulls in `truststore`. On Windows it
+   exposes the certificates Windows already trusts — including any corporate
+   root CA installed via group policy — so the harness fetches Google Patents
+   without further configuration.
+2. **Skip verification temporarily**. Set
+   `PATENT_HARNESS_INSECURE_SSL=1` in the shell that launches
+   `scripts/run_ui.py`. Outbound HTTPS will then skip certificate
+   verification, with a warning logged on every fetch. Use only while a proper
+   trust path is being arranged. PowerShell example:
+   `$env:PATENT_HARNESS_INSECURE_SSL = "1"; python scripts\run_ui.py --port 8765`.
+3. **Install the corporate root CA into the trust store**. Ask IT for the
+   internal proxy/inspection root certificate (PEM/CRT) and import it into
+   the Windows trust store (Manage user certificates → Trusted Root
+   Certification Authorities). Re-run the harness; `truststore` will pick
+   it up automatically.
+
 ```powershell
 python scripts\screen_excel.py --product examples\product_alpha.json --excel examples\patent_candidates.csv --output build_log\batch_screening_report.json --summary-csv build_log\batch_screening_summary.csv
 ```

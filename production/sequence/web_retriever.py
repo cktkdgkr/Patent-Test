@@ -497,11 +497,14 @@ def _get_text(url: str, timeout_seconds: int) -> str:
 
 
 def _get_bytes_response(url: str, timeout_seconds: int) -> tuple[bytes, str, str]:
+    from production.retriever.web_fetcher import _build_ssl_context
+
     request = urllib.request.Request(
         url,
         headers={"User-Agent": "enzyme-patent-harness/0.1 (+sequence listing research)"},
     )
-    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+    context = _build_ssl_context()
+    with urllib.request.urlopen(request, timeout=timeout_seconds, context=context) as response:
         content_type = response.headers.get("Content-Type", "")
         payload = response.read(MAX_SEQUENCE_DOCUMENT_BYTES + 1)
         if len(payload) > MAX_SEQUENCE_DOCUMENT_BYTES:

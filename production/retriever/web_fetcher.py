@@ -1,4 +1,7 @@
+import logging
+import os
 import re
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -6,6 +9,45 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 from core.sanitizer import Sanitizer
+
+try:
+    import truststore  # type: ignore[import-not-found]
+
+    _HAS_TRUSTSTORE = True
+except Exception:  # pragma: no cover - optional dependency
+    truststore = None  # type: ignore[assignment]
+    _HAS_TRUSTSTORE = False
+
+
+logger = logging.getLogger(__name__)
+
+
+def _build_ssl_context() -> ssl.SSLContext:
+    """Build the SSL context used for outbound HTTPS calls.
+
+    Resolution order:
+    1. ``PATENT_HARNESS_INSECURE_SSL=1`` → certificate verification is
+       disabled. Use only as a temporary workaround (logged at WARNING).
+    2. ``truststore`` installed → SSL context backed by the operating
+       system's certificate store. On Windows this picks up corporate CAs
+       installed via group policy, which is what unblocks fetches behind a
+       Zscaler / Cisco Umbrella / Bluecoat style SSL inspection proxy.
+    3. Fallback → ``ssl.create_default_context()`` using the bundled
+       ``certifi`` roots (works on the open internet).
+    """
+    if os.getenv("PATENT_HARNESS_INSECURE_SSL", "").strip().lower() in {"1", "true", "yes"}:
+        logger.warning(
+            "PATENT_HARNESS_INSECURE_SSL is set; outbound HTTPS calls will skip "
+            "certificate verification. Fix corporate trust roots and unset this "
+            "as soon as possible."
+        )
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+    if _HAS_TRUSTSTORE:
+        return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    return ssl.create_default_context()
 
 
 class WebPatentFetchError(Exception):
@@ -86,8 +128,9 @@ def fetch_google_patents_claims(identifier: str, timeout_seconds: int = 20) -> t
             "User-Agent": "enzyme-patent-harness/0.1 (+local screening research)",
         },
     )
+    context = _build_ssl_context()
     try:
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+        with urllib.request.urlopen(request, timeout=timeout_seconds, context=context) as response:
             html = response.read().decode("utf-8", errors="replace")
     except urllib.error.URLError as exc:
         raise WebPatentFetchError(f"Could not fetch {url}: {exc}") from exc
