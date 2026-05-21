@@ -71,6 +71,7 @@ class _TextExtractor(HTMLParser):
 class _ClaimSectionExtractor(HTMLParser):
     _VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
     _BREAK_TAGS = {"br", "div", "h2", "li", "p", "section"}
+    _TARGET_ITEMPROP = "claims"
 
     def __init__(self) -> None:
         super().__init__()
@@ -80,7 +81,7 @@ class _ClaimSectionExtractor(HTMLParser):
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attributes = dict(attrs)
-        if not self.in_claims and tag == "section" and attributes.get("itemprop") == "claims":
+        if not self.in_claims and tag == "section" and attributes.get("itemprop") == self._TARGET_ITEMPROP:
             self.in_claims = True
             self.depth = 1
             return
@@ -113,6 +114,17 @@ class _ClaimSectionExtractor(HTMLParser):
 
     def text(self) -> str:
         return "\n".join(self.parts)
+
+
+class _DescriptionSectionExtractor(_ClaimSectionExtractor):
+    """Same machinery as the claims extractor, but targets the
+    ``<section itemprop="description">`` block. Patent sequence listings,
+    examples, and full-text bodies live here, so capturing it lets the
+    downstream sequence extractor find SEQ ID NO sequences that the
+    claims section only references by name.
+    """
+
+    _TARGET_ITEMPROP = "description"
 
 
 def fetch_google_patents_claims(
@@ -335,12 +347,28 @@ def _extract_and_normalize(html: str) -> str:
 
 
 def extract_claims_from_google_patents_html(html: str) -> str:
+    claims = _extract_claims_text(html)
+    description = _extract_description_text(html)
+    if description:
+        # Append the description so sequence extractors that scan the
+        # ``raw_text`` later (extract_reference_sequences) can pick up
+        # SEQ ID NO sequences that only appear in the description body,
+        # not the claims. The marker line keeps downstream claim parsing
+        # unambiguous: ``TreeBuilder.parse_claims`` looks for lines that
+        # start with ``N.`` and ignores everything after the marker.
+        return Sanitizer.sanitize(
+            f"{claims}\n\n--- DESCRIPTION ---\n\n{description}"
+        )
+    return Sanitizer.sanitize(claims)
+
+
+def _extract_claims_text(html: str) -> str:
     section_parser = _ClaimSectionExtractor()
     section_parser.feed(html)
     claims = _normalize_claim_text(section_parser.text())
     claims = re.sub(r"^Claims\s*\(\s*\d+\s*\)\s*", "", claims, flags=re.IGNORECASE)
     if re.search(r"^\s*1\.", claims, flags=re.MULTILINE):
-        return Sanitizer.sanitize(claims)
+        return claims
 
     parser = _TextExtractor()
     parser.feed(html)
@@ -357,13 +385,44 @@ def extract_claims_from_google_patents_html(html: str) -> str:
     claims = _normalize_claim_text(match.group("claims"))
     if not re.search(r"^\s*1\.", claims, flags=re.MULTILINE):
         raise WebPatentFetchError("Fetched page did not contain numbered claims")
-    return Sanitizer.sanitize(claims)
+    return claims
+
+
+def _extract_description_text(html: str) -> str:
+    parser = _DescriptionSectionExtractor()
+    parser.feed(html)
+    text = parser.text()
+    if not text or not text.strip():
+        return ""
+    # Light cleanup; we keep newlines so multi-paragraph sequence chunks
+    # remain separable for the SEQ-ID-following-marker extractor.
+    text = re.sub(r"\n[ \t]+", "\n", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+CACHE_VERSION_MARKER = "# patent-cache-v2 claims+description\n"
 
 
 def write_web_cache(identifier: str, claims_text: str) -> Path:
-    path = _repo_root() / "data" / "patent_cache" / "web" / f"{_safe_identifier(identifier)}.txt"
+    """Write fetched Google Patents text to the local cache.
+
+    Files are written under ``data/patent_cache/web_v2/`` so the older v1
+    cache directory (claims-only payloads) is bypassed once this code path
+    runs — that previous format silently dropped the sequence listings that
+    live in the patent description body. The leading marker line is for
+    forward-compatible inspection; the harness strips it on read.
+    """
+    path = (
+        _repo_root() / "data" / "patent_cache" / "web_v2" / f"{_safe_identifier(identifier)}.txt"
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(claims_text, encoding="utf-8")
+    payload = (
+        claims_text if claims_text.startswith(CACHE_VERSION_MARKER)
+        else CACHE_VERSION_MARKER + claims_text
+    )
+    path.write_text(payload, encoding="utf-8")
     return path
 
 

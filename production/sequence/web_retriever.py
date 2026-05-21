@@ -268,13 +268,34 @@ def _fetch_google_patents_sequences(
     seq_id_references: Iterable[str],
     timeout_seconds: int,
 ) -> SequenceWebFetchResult:
+    """Walk the Google Patents page for ``patent_id`` and any sequence-listing
+    documents it links to. If the direct URL returns no parseable content
+    (common when the caller passes an application number that Google indexes
+    under a different publication ID), retry once with the publication ID
+    resolved via Google Patents' own XHR search endpoint.
+    """
     result = SequenceWebFetchResult(patent_id=patent_id)
-    url = f"https://patents.google.com/patent/{urllib.parse.quote(patent_id)}/en"
+    urls_to_try = [f"https://patents.google.com/patent/{urllib.parse.quote(patent_id)}/en"]
+
+    # Resolve the application number to the canonical publication ID, in case
+    # the cached PatentFetchResult retained the original (un-resolved) id.
+    try:
+        from production.retriever.web_fetcher import _search_google_patents
+
+        country, _ = _patent_country_number(patent_id)
+        resolved = _search_google_patents(patent_id, country or None, timeout_seconds)
+        if resolved and resolved != patent_id:
+            urls_to_try.append(
+                f"https://patents.google.com/patent/{urllib.parse.quote(resolved)}/en"
+            )
+    except Exception as exc:  # pragma: no cover - defensive
+        result.errors.append(f"Google Patents search fallback: {exc}")
+
     found = _fetch_sequence_documents_from_urls(
         "Google Patents",
         patent_id,
         seq_id_references,
-        [url],
+        urls_to_try,
         timeout_seconds,
     )
     _merge_matching(result, found.sequences, seq_id_references, found.sources)

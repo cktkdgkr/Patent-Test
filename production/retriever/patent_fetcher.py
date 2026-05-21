@@ -47,9 +47,14 @@ def fetch_patent_by_identifier(
         reason=f"fetch_patent:{clean_identifier}",
     )
 
+    from production.retriever.web_fetcher import CACHE_VERSION_MARKER
+
     for path in _candidate_paths(clean_identifier):
         if path.exists() and path.is_file():
-            raw_text = Sanitizer.sanitize(path.read_text(encoding="utf-8"))
+            text = path.read_text(encoding="utf-8")
+            if text.startswith(CACHE_VERSION_MARKER):
+                text = text[len(CACHE_VERSION_MARKER):]
+            raw_text = Sanitizer.sanitize(text)
             _trace_fetch(run_id, clean_identifier, path, raw_text)
             return PatentFetchResult(
                 patent_id=clean_identifier,
@@ -87,11 +92,14 @@ def _candidate_paths(identifier: str) -> list[Path]:
         raw.replace("/", "_").replace("-", "_"),
         normalized.replace("/", "_").replace("-", "_"),
     }
+    # New v2 cache dir is checked first; v1 ('web') is intentionally skipped
+    # because v1 payloads stored only claims, which made the sequence-listing
+    # pipeline see empty patents. Old v1 files become inert until refetched.
     return [
         root / "data" / "patent_cache" / f"{name}.txt"
         for name in names
     ] + [
-        root / "data" / "patent_cache" / "web" / f"{name}.txt"
+        root / "data" / "patent_cache" / "web_v2" / f"{name}.txt"
         for name in names
     ] + [
         root / "data" / "mock_patents" / f"{name}.txt"

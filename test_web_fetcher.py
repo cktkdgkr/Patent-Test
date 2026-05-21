@@ -18,6 +18,12 @@ def test_simple_claim_heading():
 
 
 def test_google_patents_claim_section_markup():
+    """Claims and the description body are now both surfaced so the
+    sequence extractor can find SEQ ID NO sequences that only appear in
+    the description. Claim parsing still picks up the numbered claims
+    because the description follows a clear ``--- DESCRIPTION ---`` marker
+    in the combined payload.
+    """
     html = """
     <html><body>
     <section itemprop="description"><div>Background text.</div></section>
@@ -39,17 +45,44 @@ def test_google_patents_claim_section_markup():
     <section itemprop="application"><h2>Application</h2></section>
     </body></html>
     """
-    claims = extract_claims_from_google_patents_html(html)
-    print(claims)
-    assert "1. An isolated enzyme having at least 70% identity." in claims
-    assert "2. The enzyme of claim 1, active at pH 6-8." in claims
-    assert "Background text" not in claims
-    assert "Application" not in claims
+    combined = extract_claims_from_google_patents_html(html)
+    print(combined)
+    assert "1. An isolated enzyme having at least 70% identity." in combined
+    assert "2. The enzyme of claim 1, active at pH 6-8." in combined
+    assert "--- DESCRIPTION ---" in combined
+    assert "Background text" in combined
+    # Outside-of-claims/description boilerplate (e.g. <section itemprop="application">) is dropped.
+    assert "Application" not in combined
+
+
+def test_description_with_sequence_listing():
+    """Sequences embedded in the patent description (the common Google
+    Patents shape) survive the combined-text extraction so the downstream
+    sequence pipeline can compare them to the product sequence."""
+    html = """
+    <html><body>
+    <section itemprop="claims" itemscope>
+      <h2>Claims (1)</h2>
+      <div class="claim">1. An enzyme having at least 80% identity to SEQ ID NO:1.</div>
+    </section>
+    <section itemprop="description">
+      <div class="description-paragraph">
+        <p>The amino acid sequence of SEQ ID NO:1 is shown below:</p>
+        <p>MKTAYIAKQRQISFVKSHFSRQEILDLICGYRAQHGEVPDSLLITKE</p>
+      </div>
+    </section>
+    </body></html>
+    """
+    combined = extract_claims_from_google_patents_html(html)
+    from production.sequence.analysis import extract_reference_sequences
+    sequences = extract_reference_sequences(combined)
+    assert sequences.get("SEQ ID NO:1") == "MKTAYIAKQRQISFVKSHFSRQEILDLICGYRAQHGEVPDSLLITKE", sequences
 
 
 def main():
     test_simple_claim_heading()
     test_google_patents_claim_section_markup()
+    test_description_with_sequence_listing()
 
 
 if __name__ == "__main__":
