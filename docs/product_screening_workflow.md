@@ -161,6 +161,69 @@ connector reads claims from Google Patents, writes fetched claim text under
 sequences from public web sequence sources. Use this as a convenience connector,
 not as the authoritative legal record.
 
+### Patent-office API credentials
+
+When the patent text fetched from Google Patents (or wherever) does not
+include the sequence listing inline, the workflow can call patent-office
+APIs to fetch sequences directly. Two integrations are wired in:
+
+#### KIPRIS Plus (Korea — 100% KR coverage)
+
+KIPRIS Plus is the Korean Intellectual Property Office's open API. Free
+registration. After signup, set a single env var:
+
+```powershell
+$env:KIPRIS_SERVICE_KEY = "your-service-key-here"
+```
+
+For permanent setup on Windows:
+1. 시작 → "환경 변수" 검색 → 시스템 환경 변수 편집
+2. 환경 변수 → 사용자 변수 → 새로 만들기
+3. 변수 이름: `KIPRIS_SERVICE_KEY`, 변수 값: 발급받은 키
+4. PowerShell 새 창에서 서버 재시작
+
+Optional overrides:
+- `KIPRIS_BASE_URL` — non-default mirror or HTTPS variant
+- `KIPRIS_ENDPOINTS` — comma-separated KIPRIS Plus API paths to try first
+  (when your subscription exposes a specific sequence-listing endpoint
+  that isn't in the default list)
+
+Registration: https://plus.kipris.or.kr
+
+#### EPO OPS (Espacenet — global coverage)
+
+EPO Open Patent Services covers patents from all major offices (US, CN,
+JP, EP, WO, KR, ...). OAuth2 client_credentials. Free tier: 4 GB / week.
+
+```powershell
+$env:EPO_OPS_CLIENT_ID = "your-client-id"
+$env:EPO_OPS_CLIENT_SECRET = "your-client-secret"
+```
+
+Permanent setup as above.
+
+Registration: https://www.epo.org/searching-for-patents/data/web-services/ops.html
+
+#### How they fit in the chain
+
+When `웹 조회` (`enable_web_fetch`) is on and a claim references a SEQ ID
+NO whose sequence is not in the fetched text, the workflow tries fetchers
+in this order:
+
+1. KIPRIS Plus  (KR patents only; skips if `KIPRIS_SERVICE_KEY` unset)
+2. EPO OPS      (global; skips if `EPO_OPS_CLIENT_*` unset)
+3. WIPO PCT     (`WO` publications)
+4. EPO public bibliographic
+5. USPTO PSIPS (US)
+6. NCBI Protein
+7. Google Patents page links
+
+The first source that returns a usable sequence wins. Missing credentials
+do not break the chain — those fetchers short-circuit and the next one
+runs. Recovered sequences are cached under
+`data/sequence_cache/web/<patent_id>.json` so the same patent does not
+re-call the APIs in subsequent runs.
+
 ### HTTPS on corporate networks (SSL inspection)
 
 On a corporate network that performs SSL inspection (Zscaler / Bluecoat /

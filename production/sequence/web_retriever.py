@@ -1,7 +1,11 @@
+import base64
 import html
 import io
 import json
+import logging
+import os
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -18,8 +22,30 @@ from production.sequence.analysis import (
     sequence_listing_content_to_sequence,
 )
 
+logger = logging.getLogger(__name__)
+
 MAX_SEQUENCE_DOCUMENT_BYTES = 25_000_000
 MAX_LINKED_SEQUENCE_DOCUMENTS = 12
+
+# === EPO OPS (Espacenet) constants ===
+EPO_OPS_TOKEN_URL = "https://ops.epo.org/3.2/auth/accesstoken"
+EPO_OPS_PUBLISHED_DATA_BASE = "https://ops.epo.org/3.2/rest-services/published-data"
+# In-process OAuth token cache. EPO OPS tokens are typically 20 minutes
+# long; we re-fetch them eagerly to keep call chains short.
+_EPO_OPS_TOKEN_STATE: Dict[str, object] = {"token": "", "expires_at": 0.0}
+
+# === KIPRIS Plus constants ===
+KIPRIS_PLUS_BASE = "http://plus.kipris.or.kr/openapi/rest"
+KIPRIS_PLUS_DOC_ENDPOINTS: tuple[str, ...] = (
+    # Patent / utility-model full specification (description + claims, often
+    # carries embedded ST.25 sequences).
+    "/patUtilityInfoSearchService/getPatentAbstractSearch",
+    # Specification endpoint that returns the full document body.
+    "/patUtilityInfoSearchService/getPatentSpecification",
+    # Sequence-listing-specific endpoint (only present in some KIPRIS Plus
+    # subscriptions; we try and fall through quietly if 404).
+    "/PatUtilFreeFullTextService/getSeqListinfo",
+)
 
 
 class SequenceWebFetchResult(BaseModel):
@@ -47,7 +73,13 @@ def fetch_sequence_references_for_patent(
     if not missing:
         return result
 
+    # Fetcher order: most specific / highest-quality first, generic public
+    # web sources last. KIPRIS and EPO OPS only consume their API quota when
+    # credentials are configured (otherwise they short-circuit on first
+    # call), so it is safe to keep them in the chain for every patent.
     for fetcher in (
+        _fetch_kipris_sequences,
+        _fetch_epo_ops_sequences,
         _fetch_wipo_pct_sequences,
         _fetch_epo_public_sequences,
         _fetch_uspto_psips_sequences,
@@ -250,6 +282,262 @@ def _fetch_google_patents_sequences(
     if not result.sequences:
         result.errors.append("Google Patents: no matching sequence listing text")
     return result
+
+
+def _fetch_kipris_sequences(
+    patent_id: str,
+    seq_id_references: Iterable[str],
+    timeout_seconds: int,
+) -> SequenceWebFetchResult:
+    """KIPRIS Plus full-specification / sequence-listing lookup for KR patents.
+
+    Requires the ``KIPRIS_SERVICE_KEY`` environment variable; without it the
+    fetcher records a skip reason and returns no sequences. Optional override
+    knobs: ``KIPRIS_BASE_URL`` (e.g. for the HTTPS mirror) and
+    ``KIPRIS_ENDPOINTS`` (comma-separated paths to try first).
+    """
+    result = SequenceWebFetchResult(patent_id=patent_id)
+    service_key = os.getenv("KIPRIS_SERVICE_KEY", "").strip()
+    if not service_key:
+        result.errors.append("KIPRIS: KIPRIS_SERVICE_KEY not set")
+        return result
+
+    country, number = _patent_country_number(patent_id)
+    if country and country != "KR":
+        result.errors.append(f"KIPRIS: skipped non-KR patent ({country})")
+        return result
+    application_number = re.sub(r"[^0-9]", "", number or patent_id)
+    if not application_number:
+        result.errors.append("KIPRIS: no numeric application id")
+        return result
+
+    base = os.getenv("KIPRIS_BASE_URL", KIPRIS_PLUS_BASE).rstrip("/")
+    override = os.getenv("KIPRIS_ENDPOINTS", "").strip()
+    endpoints = (
+        tuple(e.strip() for e in override.split(",") if e.strip())
+        if override
+        else KIPRIS_PLUS_DOC_ENDPOINTS
+    )
+
+    seq_refs = list(seq_id_references)
+    for endpoint in endpoints:
+        url = f"{base}{endpoint}?" + urllib.parse.urlencode(
+            {
+                "ServiceKey": service_key,
+                "applicationNumber": application_number,
+            }
+        )
+        try:
+            body, _final_url, content_type = _get_bytes_response(url, timeout_seconds)
+        except urllib.error.HTTPError as exc:
+            result.errors.append(f"KIPRIS {endpoint}: HTTP {exc.code}")
+            continue
+        except urllib.error.URLError as exc:
+            result.errors.append(f"KIPRIS {endpoint}: {exc}")
+            continue
+        if not body:
+            continue
+
+        text = _decode_kipris_response(body, content_type)
+        sequences = extract_reference_sequences(text)
+        if _looks_like_html_or_xml(text):
+            stripped = _strip_html_for_sequence_extraction(text)
+            for ref, seq in extract_reference_sequences(stripped).items():
+                if len(seq) > len(sequences.get(ref, "")):
+                    sequences[ref] = seq
+
+        sources = {
+            ref: f"KIPRIS {endpoint}" for ref in sequences
+        }
+        _merge_matching(result, sequences, seq_refs, sources)
+        if result.sequences:
+            break
+
+    if not result.sequences:
+        result.errors.append("KIPRIS: no sequences in document responses")
+    return result
+
+
+def _fetch_epo_ops_sequences(
+    patent_id: str,
+    seq_id_references: Iterable[str],
+    timeout_seconds: int,
+) -> SequenceWebFetchResult:
+    """EPO OPS (Espacenet) description / full-text lookup.
+
+    Requires ``EPO_OPS_CLIENT_ID`` and ``EPO_OPS_CLIENT_SECRET`` (free EPO
+    developer registration). Returns no sequences when credentials are
+    missing. Tokens are cached in-process for their declared lifetime.
+    """
+    result = SequenceWebFetchResult(patent_id=patent_id)
+    token = _get_epo_ops_token(timeout_seconds)
+    if not token:
+        result.errors.append(
+            "EPO OPS: EPO_OPS_CLIENT_ID / EPO_OPS_CLIENT_SECRET not set "
+            "or token request failed"
+        )
+        return result
+
+    country, number = _patent_country_number(patent_id)
+    if not country or not number:
+        result.errors.append(f"EPO OPS: cannot parse {patent_id}")
+        return result
+
+    # epodoc format: country code + number with no separators.
+    epodoc = f"{country}{number}"
+    seq_refs = list(seq_id_references)
+    for section in ("description", "fulltext", "claims"):
+        url = (
+            f"{EPO_OPS_PUBLISHED_DATA_BASE}/publication/epodoc/"
+            f"{urllib.parse.quote(epodoc)}/{section}"
+        )
+        request = urllib.request.Request(
+            url,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/json",
+                "User-Agent": "enzyme-patent-harness/0.1",
+            },
+        )
+        from production.retriever.web_fetcher import _build_ssl_context
+        context = _build_ssl_context()
+        try:
+            with urllib.request.urlopen(request, timeout=timeout_seconds, context=context) as response:
+                body = response.read(MAX_SEQUENCE_DOCUMENT_BYTES + 1)
+                content_type = response.headers.get("Content-Type", "")
+        except urllib.error.HTTPError as exc:
+            # 404 is normal — that section may not be published. Surface any
+            # other failures so the user knows why coverage was missed.
+            if exc.code != 404:
+                result.errors.append(f"EPO OPS {section}: HTTP {exc.code}")
+            continue
+        except urllib.error.URLError as exc:
+            result.errors.append(f"EPO OPS {section}: {exc}")
+            continue
+
+        if len(body) > MAX_SEQUENCE_DOCUMENT_BYTES:
+            result.errors.append(f"EPO OPS {section}: response too large")
+            continue
+
+        text = _decode_epo_ops_response(body, content_type)
+        sequences = extract_reference_sequences(text)
+        if _looks_like_html_or_xml(text):
+            stripped = _strip_html_for_sequence_extraction(text)
+            for ref, seq in extract_reference_sequences(stripped).items():
+                if len(seq) > len(sequences.get(ref, "")):
+                    sequences[ref] = seq
+
+        sources = {ref: f"EPO OPS {section} ({epodoc})" for ref in sequences}
+        _merge_matching(result, sequences, seq_refs, sources)
+        if result.sequences:
+            break
+
+    if not result.sequences and not any("EPO OPS" in err for err in result.errors):
+        result.errors.append("EPO OPS: no sequences in description/fulltext/claims")
+    return result
+
+
+def _get_epo_ops_token(timeout_seconds: int) -> Optional[str]:
+    cached_token = _EPO_OPS_TOKEN_STATE.get("token", "")
+    cached_expiry = float(_EPO_OPS_TOKEN_STATE.get("expires_at", 0.0))
+    if cached_token and cached_expiry > time.time() + 30:
+        return str(cached_token)
+
+    client_id = os.getenv("EPO_OPS_CLIENT_ID", "").strip()
+    client_secret = os.getenv("EPO_OPS_CLIENT_SECRET", "").strip()
+    if not client_id or not client_secret:
+        return None
+
+    credentials = base64.b64encode(
+        f"{client_id}:{client_secret}".encode("utf-8")
+    ).decode("ascii")
+    request = urllib.request.Request(
+        EPO_OPS_TOKEN_URL,
+        data=b"grant_type=client_credentials",
+        headers={
+            "Authorization": f"Basic {credentials}",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+    from production.retriever.web_fetcher import _build_ssl_context
+    context = _build_ssl_context()
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds, context=context) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.URLError as exc:
+        logger.warning("EPO OPS token request failed: %s", exc)
+        return None
+    except json.JSONDecodeError as exc:
+        logger.warning("EPO OPS token response was not JSON: %s", exc)
+        return None
+
+    token = payload.get("access_token")
+    expires_in = int(payload.get("expires_in", 1200))
+    if not token:
+        return None
+    _EPO_OPS_TOKEN_STATE["token"] = token
+    _EPO_OPS_TOKEN_STATE["expires_at"] = time.time() + expires_in - 30
+    return token
+
+
+def _decode_kipris_response(body: bytes, content_type: str) -> str:
+    if content_type and "json" in content_type.lower():
+        try:
+            data = json.loads(body.decode("utf-8", errors="replace"))
+        except json.JSONDecodeError:
+            return _decode_bytes(body)
+        return _flatten_json_text(data)
+    return _decode_bytes(body)
+
+
+def _decode_epo_ops_response(body: bytes, content_type: str) -> str:
+    if content_type and "json" in content_type.lower():
+        try:
+            data = json.loads(body.decode("utf-8", errors="replace"))
+        except json.JSONDecodeError:
+            return _decode_bytes(body)
+        return _flatten_json_text(data)
+    return _decode_bytes(body)
+
+
+def _flatten_json_text(value: object) -> str:
+    """Walk a JSON object and concatenate every string value with newlines.
+
+    EPO OPS and KIPRIS return XML-style biblio with text fields scattered
+    across nested objects/arrays. A simple string-flatten gives the sequence
+    extractor enough surface area without us hand-coding each schema.
+    """
+    chunks: List[str] = []
+
+    def visit(node: object) -> None:
+        if isinstance(node, dict):
+            for child in node.values():
+                visit(child)
+        elif isinstance(node, list):
+            for child in node:
+                visit(child)
+        elif isinstance(node, str):
+            chunks.append(node)
+        elif node is None:
+            return
+        else:
+            chunks.append(str(node))
+
+    visit(value)
+    return "\n".join(chunks)
+
+
+def _looks_like_html_or_xml(text: str) -> bool:
+    snippet = text[:2048].lstrip().lower()
+    return (
+        snippet.startswith("<")
+        or "<html" in snippet
+        or "<!doctype html" in snippet
+        or "<section" in snippet
+        or "<?xml" in snippet
+    )
 
 
 def _fetch_sequence_documents_from_urls(
@@ -600,13 +888,14 @@ def _seq_id_number(value: str) -> Optional[int]:
 
 def _patent_country_number(patent_id: str) -> tuple[str, str]:
     compact = re.sub(r"[^A-Za-z0-9]", "", patent_id).upper()
-    match = re.match(r"(?P<country>[A-Z]{2})(?P<number>\d{5,12})(?P<kind>[A-Z]\d?)?$", compact)
+    # Allow up to 14 digit numbers (Korean publication numbers are 13 digits)
+    match = re.match(r"(?P<country>[A-Z]{2})(?P<number>\d{5,14})(?P<kind>[A-Z]\d?)?$", compact)
     if match:
         return match.group("country"), match.group("number")
-    match = re.search(r"(?P<country>[A-Z]{2})(?P<number>\d{5,12})", compact)
+    match = re.search(r"(?P<country>[A-Z]{2})(?P<number>\d{5,14})", compact)
     if match:
         return match.group("country"), match.group("number")
-    match = re.search(r"(\d{5,12})", compact)
+    match = re.search(r"(\d{5,14})", compact)
     return ("", match.group(1)) if match else ("", "")
 
 
