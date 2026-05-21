@@ -200,11 +200,24 @@ def fetch_google_patents_claims(
 
 _GOOGLE_KIND_CODE_RETRIES = ("A", "A1", "B1", "B2")
 _GOOGLE_KIND_CODE_TAIL = re.compile(r"[A-Za-z]\d?$")
-_GOOGLE_SEARCH_PATENT_LINK = re.compile(r'/patent/([A-Z]{2}[A-Z0-9]+)/(?:en|ko)\b')
-_GOOGLE_PUBLICATION_NUMBER_TAG = re.compile(
-    r'"publication_number"\s*:\s*"([A-Z]{2}[A-Z0-9]+)"'
+
+# Patterns for extracting patent identifiers out of Google Patents
+# responses. Multiple shapes are needed because the HTML, XHR JSON-ish
+# payload, and SPA shell each surface IDs differently.
+_PATENT_ID_PATTERNS = (
+    re.compile(r'/patent/([A-Z]{2}[A-Z0-9]+)/(?:en|ko|zh|ja|de|fr)\b'),
+    re.compile(r'"publication_number"\s*:\s*"([A-Z]{2}[A-Z0-9]+)"'),
+    re.compile(r'<meta\b[^>]*content\s*=\s*"([A-Z]{2}\d[A-Z0-9]+)"'),
+    re.compile(r'rel\s*=\s*"canonical"\s+href\s*=\s*"[^"]*?/patent/([A-Z]{2}[A-Z0-9]+)/'),
+    re.compile(r'data-result\s*=\s*"([A-Z]{2}[A-Z0-9]+)"'),
+    re.compile(r"\bpn=([A-Z]{2}[A-Z0-9]+)\b"),
+    re.compile(r"\bdocid\s*[:=]\s*['\"]?([A-Z]{2}[A-Z0-9]+)"),
 )
 _GOOGLE_REDIRECT_PATENT_PATH = re.compile(r"/patent/([A-Z]{2}[A-Z0-9]+)/")
+_BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
 
 
 def _fetch_google_patents_html(
@@ -214,7 +227,9 @@ def _fetch_google_patents_html(
     request = urllib.request.Request(
         url,
         headers={
-            "User-Agent": "enzyme-patent-harness/0.1 (+local screening research)",
+            "User-Agent": _BROWSER_USER_AGENT,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9,ko;q=0.8",
         },
     )
     context = _build_ssl_context()
@@ -228,43 +243,84 @@ def _fetch_google_patents_html(
 def _search_google_patents(
     query: str, country_hint: str | None, timeout_seconds: int
 ) -> str | None:
-    """Run Google Patents' built-in search and return the first patent ID
-    matching the optional country hint (or the first overall hit if no hint
-    is provided). Returns ``None`` when nothing is found.
+    """Resolve a free-text query to a Google Patents publication ID.
+
+    Tries Google Patents' internal XHR endpoint first (the same one the UI
+    calls; returns server-rendered HTML with the result IDs embedded), then
+    falls back to the regular search URL in case the XHR endpoint shape
+    changes. Honors ``country_hint`` to prefer same-office hits, which
+    matters when a query like ``CN202510536859`` happens to also match an
+    unrelated WO/US application.
     """
-    url = "https://patents.google.com/?" + urllib.parse.urlencode({"q": query})
+    for builder in (_xhr_search_url, _ui_search_url):
+        url = builder(query)
+        ident = _fetch_and_match_patent_id(url, query, country_hint, timeout_seconds)
+        if ident:
+            return ident
+    return None
+
+
+def _xhr_search_url(query: str) -> str:
+    inner = urllib.parse.urlencode({"q": query})
+    return "https://patents.google.com/xhr/query?" + urllib.parse.urlencode(
+        {"url": inner, "exp": ""}
+    )
+
+
+def _ui_search_url(query: str) -> str:
+    return "https://patents.google.com/?" + urllib.parse.urlencode({"q": query})
+
+
+def _fetch_and_match_patent_id(
+    url: str, query: str, country_hint: str | None, timeout_seconds: int
+) -> str | None:
     request = urllib.request.Request(
         url,
         headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+            "User-Agent": _BROWSER_USER_AGENT,
+            "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9,ko;q=0.8",
+            "Referer": "https://patents.google.com/",
+            "X-Requested-With": "XMLHttpRequest",
         },
     )
     context = _build_ssl_context()
     try:
         with urllib.request.urlopen(request, timeout=timeout_seconds, context=context) as response:
             final_url = response.geturl()
-            html = response.read().decode("utf-8", errors="replace")
-    except urllib.error.URLError:
+            body = response.read().decode("utf-8", errors="replace")
+    except urllib.error.URLError as exc:
+        logger.debug("Google Patents search %s failed: %s", url, exc)
         return None
 
-    # Google sometimes redirects a single exact match to the patent page directly.
     redirect_match = _GOOGLE_REDIRECT_PATENT_PATH.search(final_url)
     if redirect_match:
         return redirect_match.group(1)
 
     candidates: list[str] = []
-    candidates.extend(_GOOGLE_PUBLICATION_NUMBER_TAG.findall(html))
-    candidates.extend(_GOOGLE_SEARCH_PATENT_LINK.findall(html))
+    for pattern in _PATENT_ID_PATTERNS:
+        for match in pattern.findall(body):
+            if match and match not in candidates:
+                candidates.append(match)
     if not candidates:
+        logger.info(
+            "Google Patents search for %r against %s returned no parseable "
+            "patent IDs (final url=%s, body length=%d). The page may be a "
+            "JS-rendered shell.",
+            query, url, final_url, len(body),
+        )
         return None
 
+    query_upper = re.sub(r"[^A-Za-z0-9]", "", query).upper()
     if country_hint:
         cc = country_hint.strip().upper()
         if cc:
             for candidate in candidates:
-                if candidate.startswith(cc):
+                if candidate.startswith(cc) and candidate.upper() != query_upper:
                     return candidate
+    for candidate in candidates:
+        if candidate.upper() != query_upper:
+            return candidate
     return candidates[0]
 
 
