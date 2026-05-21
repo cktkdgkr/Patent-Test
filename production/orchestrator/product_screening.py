@@ -97,6 +97,7 @@ async def screen_product_against_patent_id(
     patent_id: str,
     run_id: Optional[str] = None,
     allow_sequence_web_fetch: bool = False,
+    extra_reference_sequences: Optional[Dict[str, str]] = None,
 ) -> ProductPatentScreeningReport:
     run_id = run_id or TraceLogger.start_run("product_screening")
     raw_text = retrieve_patent(patent_id, run_id=run_id)
@@ -107,6 +108,7 @@ async def screen_product_against_patent_id(
         raw_text=raw_text,
         run_id=run_id,
         allow_sequence_web_fetch=allow_sequence_web_fetch,
+        extra_reference_sequences=extra_reference_sequences,
     )
 
 
@@ -116,6 +118,7 @@ async def screen_product_against_patent_file(
     patent_id: Optional[str] = None,
     run_id: Optional[str] = None,
     allow_sequence_web_fetch: bool = False,
+    extra_reference_sequences: Optional[Dict[str, str]] = None,
 ) -> ProductPatentScreeningReport:
     run_id = run_id or TraceLogger.start_run("product_screening")
     candidate_id = patent_id or Path(file_path).stem
@@ -127,6 +130,7 @@ async def screen_product_against_patent_file(
         raw_text=raw_text,
         run_id=run_id,
         allow_sequence_web_fetch=allow_sequence_web_fetch,
+        extra_reference_sequences=extra_reference_sequences,
     )
 
 
@@ -137,6 +141,7 @@ async def screen_product_against_patent_text(
     raw_text: str,
     run_id: Optional[str] = None,
     allow_sequence_web_fetch: bool = False,
+    extra_reference_sequences: Optional[Dict[str, str]] = None,
 ) -> ProductPatentScreeningReport:
     run_id = run_id or TraceLogger.start_run("product_screening")
     clean_product = ProductSpec(**Sanitizer.sanitize_payload(product.model_dump()))
@@ -148,6 +153,17 @@ async def screen_product_against_patent_text(
         seq_id: "patent_text"
         for seq_id in patent_reference_sequences
     }
+
+    # Layer in any user-supplied reference sequences from the candidate
+    # row (CSV ``reference_sequences`` column). User data wins over the
+    # patent body since the row author had to look it up explicitly.
+    if extra_reference_sequences:
+        for seq_id, sequence in extra_reference_sequences.items():
+            cleaned = (sequence or "").strip()
+            if not cleaned:
+                continue
+            patent_reference_sequences[seq_id] = cleaned
+            sequence_reference_sources[seq_id] = "user_csv_reference_sequences"
 
     claim_nodes = TreeBuilder.parse_claims(clean_text)
     features_list = await asyncio.gather(

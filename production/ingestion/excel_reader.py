@@ -6,7 +6,7 @@ from typing import Dict, Iterable, List, Optional
 from xml.etree import ElementTree
 
 from core.sanitizer import Sanitizer
-from production.ingestion.models import PatentCandidate
+from production.ingestion.models import PatentCandidate, parse_reference_sequences_field
 
 
 HEADER_ALIASES = {
@@ -67,6 +67,22 @@ HEADER_ALIASES = {
     "claim_text": {"claim_text", "claim text", "claims", "claim", "claim 1", "청구항"},
     "abstract": {"abstract", "summary", "요약"},
     "keywords": {"keywords", "keyword", "search terms", "search_terms", "키워드"},
+    "reference_sequences": {
+        "reference_sequences",
+        "reference sequences",
+        "seq_id_sequences",
+        "seq id sequences",
+        "sequence_listing",
+        "sequence listing",
+        "sequences",
+        "fasta",
+        "서열",
+        "참조서열",
+        "참조 서열",
+        "서열 목록",
+        "서열목록",
+        "seq id 서열",
+    },
 }
 
 NS = {
@@ -196,6 +212,9 @@ def _candidate_from_row(row: Dict[str, str], index: int) -> PatentCandidate:
             normalized[canonical] = _validate_identifier(canonical, text)
         elif canonical == "country_code":
             normalized[canonical] = text
+        elif canonical == "reference_sequences":
+            # Free-form FASTA / SEQ ID block; parse later, store as-is here.
+            normalized[canonical] = text
         else:
             normalized[canonical] = Sanitizer.sanitize(text)
     metadata = {
@@ -217,6 +236,9 @@ def _candidate_from_row(row: Dict[str, str], index: int) -> PatentCandidate:
         claim_text=normalized.get("claim_text"),
         abstract=normalized.get("abstract"),
         keywords=keywords,
+        reference_sequences=parse_reference_sequences_field(
+            normalized.get("reference_sequences") or ""
+        ),
         metadata=metadata,
     )
 

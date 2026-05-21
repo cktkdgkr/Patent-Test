@@ -105,6 +105,7 @@ async def _screen_candidate(
             raw_text=candidate.claim_text,
             run_id=run_id,
             allow_sequence_web_fetch=allow_web_fetch,
+            extra_reference_sequences=candidate.reference_sequences,
         )
     if candidate.patent_file:
         patent_file = Path(candidate.patent_file)
@@ -116,6 +117,7 @@ async def _screen_candidate(
             patent_id=candidate_id,
             run_id=run_id,
             allow_sequence_web_fetch=allow_web_fetch,
+            extra_reference_sequences=candidate.reference_sequences,
         )
     if candidate.patent_id:
         fetch_result = fetch_patent_by_identifier(
@@ -130,6 +132,7 @@ async def _screen_candidate(
             raw_text=fetch_result.raw_text,
             run_id=run_id,
             allow_sequence_web_fetch=allow_web_fetch,
+            extra_reference_sequences=candidate.reference_sequences,
         )
     identifier = candidate.combined_identifier()
     if identifier:
@@ -151,6 +154,7 @@ async def _screen_candidate(
             raw_text=fetch_result.raw_text,
             run_id=run_id,
             allow_sequence_web_fetch=allow_web_fetch,
+            extra_reference_sequences=candidate.reference_sequences,
         )
     raise ValueError(
         "Candidate row has no claim_text, patent_file, patent_id, publication_number, or application_number"

@@ -1,0 +1,14 @@
+candidate_id,특허 출원 번호,국가코드,claim_text,참조 서열
+ex_full_workflow,2025-10536859,CN,"1. An enzyme having at least 80% sequence identity to SEQ ID NO:1, wherein the enzyme exhibits hyaluronidase activity at pH 6.0 to 8.0.
+2. The enzyme of claim 1, wherein the enzyme retains at least 70% activity at 50 degrees C.","
+>SEQ ID NO:1
+MWPLLLLATFAFAAIVRAEGPRSFRRPPPAQTHRSPVHLAANT
+PVHAVPATYLLLLAKQQRQDIEVCDPCKACFTLES"
+ex_fetch_only_no_seq,10-2024-0087254,KR,,
+ex_full_with_two_seqs,10-2022-0117475,KR,"1. An isolated polypeptide selected from the group consisting of SEQ ID NO:1 and SEQ ID NO:2.
+2. The polypeptide of claim 1, comprising the substitution A10V.","
+>SEQ ID NO:1
+MKTAYIAKQRQISFVKSHFSRQEILDLICGYRAQHGEVPDSLLITKE
+>SEQ ID NO:2
+MKDPLNKAAVFGTHKVRSAPNAVHFDLIKQ"
+ex_inline_format,JP2016247708,JP,"1. An enzyme of SEQ ID NO:1 active at 60 degrees C.","SEQ ID NO:1=MNKLLPTAAVFGTHKVRSAPNAVHFDLIKQAR"

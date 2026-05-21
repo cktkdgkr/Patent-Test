@@ -116,6 +116,63 @@ def test_reader_accepts_korean_patent_number_column_header() -> None:
     assert by_id["row_5"].combined_identifier() == "JP2016247708"
 
 
+def test_reference_sequences_column_fasta_block() -> None:
+    """Multi-line FASTA cell parses into a SEQ ID -> sequence mapping."""
+    from production.ingestion.models import parse_reference_sequences_field
+
+    parsed = parse_reference_sequences_field(
+        ">SEQ ID NO:1\n"
+        "MKTAYIAKQRQISFVK\n"
+        "SHFSRQEILDLIC\n"
+        ">SEQ ID NO:2\n"
+        "MKDPLNKAAVFGTHK\n"
+    )
+    assert parsed == {
+        "SEQ ID NO:1": "MKTAYIAKQRQISFVKSHFSRQEILDLIC",
+        "SEQ ID NO:2": "MKDPLNKAAVFGTHK",
+    }
+
+
+def test_reference_sequences_column_inline_kv() -> None:
+    """Inline ``key=value`` form (semicolon separated) is also accepted."""
+    from production.ingestion.models import parse_reference_sequences_field
+
+    parsed = parse_reference_sequences_field(
+        "SEQ ID NO:1=MKTAYIAKQRQISFVK; SEQ ID NO:3=MNKLLPTAAVFGTHK"
+    )
+    assert parsed == {
+        "SEQ ID NO:1": "MKTAYIAKQRQISFVK",
+        "SEQ ID NO:3": "MNKLLPTAAVFGTHK",
+    }
+
+
+def test_reference_sequences_column_via_csv_with_korean_header() -> None:
+    """``참조 서열`` Korean header should be recognised and parsed."""
+    import csv
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "candidates.csv"
+        with path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(["candidate_id", "특허 출원 번호", "국가코드", "참조 서열"])
+            writer.writerow([
+                "row_1",
+                "10-2024-0087254",
+                "KR",
+                ">SEQ ID NO:1\nMKTAYIAKQRQISFVKSHFSRQEILDLIC",
+            ])
+        candidates = read_patent_candidates(str(path))
+
+    assert len(candidates) == 1
+    cand = candidates[0]
+    assert cand.country_code == "KR"
+    assert cand.reference_sequences == {
+        "SEQ ID NO:1": "MKTAYIAKQRQISFVKSHFSRQEILDLIC",
+    }
+
+
 def test_sanitizer_no_longer_flags_patent_numbers() -> None:
     """Direct sanitizer-level regression: real patent identifiers must not
     trigger DRIVER_LICENSE_KR / BANK_ACCOUNT_LIKE while a true KR driver
@@ -153,6 +210,9 @@ def main() -> int:
     test_reader_accepts_country_code_column()
     test_reader_accepts_korean_country_column_header()
     test_reader_accepts_korean_patent_number_column_header()
+    test_reference_sequences_column_fasta_block()
+    test_reference_sequences_column_inline_kv()
+    test_reference_sequences_column_via_csv_with_korean_header()
     test_sanitizer_no_longer_flags_patent_numbers()
     print("country code ingestion: ok")
     return 0

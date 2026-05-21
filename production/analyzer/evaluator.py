@@ -163,22 +163,40 @@ class RiskAnalyzer:
                 reasoning="Product variant contains a specific mutation recited by the claim.",
             )
 
+        seq_id_referenced = any(feature.seq_id_references for feature in features)
         if identity_thresholds:
             return RiskReport(
                 grade=RiskGrade.MEDIUM,
-                confidence=0.64,
+                confidence=0.58,
                 reasoning=(
-                    "Detected a sequence identity threshold, but no comparable product "
-                    "identity could be computed from the available product sequence and "
-                    "patent SEQ ID reference."
+                    "Patent recites a sequence identity threshold but the reference "
+                    "SEQ ID NO sequence could not be located (not in fetched claim "
+                    "text, not in public sequence-listing mirrors, and not supplied "
+                    "by the user). The product sequence was NOT compared against "
+                    "the patent reference - this MEDIUM is a hedge based on the "
+                    "presence of an identity claim alone. To get a real comparison, "
+                    "add the reference sequence to the CSV 'reference_sequences' "
+                    "column or paste it into the patent's sequence listing source."
                 ),
             )
 
         if any(feature.markush_structures for feature in features):
+            sequence_note = (
+                " Patent referenced SEQ ID NO sequence(s) but they could not be "
+                "located for actual identity comparison; consider adding them to the "
+                "CSV 'reference_sequences' column for a definitive call."
+                if seq_id_referenced
+                else ""
+            )
             return RiskReport(
                 grade=RiskGrade.MEDIUM,
-                confidence=0.68,
-                reasoning="Detected variant or Markush language without enough target detail.",
+                confidence=0.6 if seq_id_referenced else 0.68,
+                reasoning=(
+                    "Detected variant or Markush language without enough target "
+                    "detail to compute an overlap. The product sequence was NOT "
+                    "compared against the patent reference."
+                    + sequence_note
+                ),
             )
         functional_limitations = [
             limitation

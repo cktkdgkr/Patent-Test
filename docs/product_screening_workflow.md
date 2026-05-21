@@ -94,6 +94,42 @@ such as:
 - `patent_file`
 - `keywords`
 
+### Providing reference sequences (`reference_sequences` column)
+
+When a patent recites `SEQ ID NO:1` but the actual amino acid string for
+that SEQ ID is not in the fetched claim text and not in any public
+sequence-listing mirror (common for very recent CN/KR/JP filings), the
+screening workflow cannot align the product sequence against the patent
+reference and falls back to a hedge MEDIUM grade with a "no sequence
+comparison was performed" note.
+
+To force a real comparison, add a `reference_sequences` column (Korean
+header `참조 서열` / `참조서열` / `서열` also recognised) and paste the
+patent's SEQ ID NO sequences directly. Three input formats are accepted:
+
+1. FASTA blocks (Excel cells allow multi-line content with Alt+Enter)::
+
+       >SEQ ID NO:1
+       MKTAYIAKQRQISFVKSHFSRQEILDLIC
+       >SEQ ID NO:2
+       MKDPLNKAAVFGTHK
+
+2. Inline `key=value` separated by `;`::
+
+       SEQ ID NO:1=MKTAYIAKQRQISFVK; SEQ ID NO:2=MKDPLN
+
+3. Plain `SEQ ID NO:N: SEQUENCE` lines.
+
+User-supplied sequences override what we extract from the patent text or
+fetch from the web. They appear in the report's `sequence_reference_sources`
+map as `"user_csv_reference_sequences"` so reviewers can see where the
+sequence came from.
+
+When the column is left blank the workflow continues as before
+(automatic extraction from the patent text + web fetch when enabled).
+See `examples/patent_candidates_with_reference_sequences.csv` for a
+ready-to-edit template.
+
 ### Country codes
 
 When a row's `publication_number` or `application_number` lacks the leading
