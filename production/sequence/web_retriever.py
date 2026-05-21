@@ -85,6 +85,10 @@ def fetch_sequence_references_for_patent(
         _fetch_uspto_psips_sequences,
         _fetch_ncbi_patent_sequences,
         _fetch_google_patents_sequences,
+        # Last-resort: Claude agent with web_search / web_fetch. Costs
+        # Anthropic API + web-tool credits per call so it only runs when
+        # ANTHROPIC_API_KEY is set AND every cheaper fetcher above missed.
+        _fetch_via_web_search_agent,
     ):
         try:
             found = fetcher(clean_patent_id, missing, timeout_seconds)
@@ -260,6 +264,59 @@ def _fetch_ncbi_patent_sequences(
         if sequence:
             result.sequences[ref] = sequence
             result.sources[ref] = f"NCBI Protein patent {patent_id} sequence {seq_num}"
+    return result
+
+
+def _fetch_via_web_search_agent(
+    patent_id: str,
+    seq_id_references: Iterable[str],
+    timeout_seconds: int,
+) -> SequenceWebFetchResult:
+    """Last-resort fetcher: have a Claude agent run web_search + web_fetch
+    against arbitrary public sources for any SEQ ID that the deterministic
+    chain could not resolve.
+
+    Only fires when ``ANTHROPIC_API_KEY`` is set and the ``anthropic`` package
+    is importable; otherwise it short-circuits without raising so the chain
+    can finish.
+    """
+    result = SequenceWebFetchResult(patent_id=patent_id)
+    try:
+        from production.sequence.web_search_agent import (
+            fetch_sequences_via_agent,
+            is_available,
+        )
+    except Exception as exc:  # pragma: no cover - defensive import
+        result.errors.append(f"Web search agent: import failed: {exc}")
+        return result
+
+    if not is_available():
+        result.errors.append(
+            "Web search agent: ANTHROPIC_API_KEY not set, skipping agent fallback"
+        )
+        return result
+
+    refs = list(seq_id_references)
+    if not refs:
+        return result
+
+    country_code, _ = _patent_country_number(patent_id)
+    try:
+        agent_result = fetch_sequences_via_agent(
+            patent_id=patent_id,
+            seq_id_references=refs,
+            country_code=country_code or None,
+        )
+    except Exception as exc:
+        result.errors.append(f"Web search agent: call failed: {exc}")
+        return result
+
+    sequences = agent_result.get("sequences", {}) if isinstance(agent_result, dict) else {}
+    sources = agent_result.get("sources", {}) if isinstance(agent_result, dict) else {}
+    if sequences:
+        _merge_matching(result, sequences, refs, sources)
+    else:
+        result.errors.append("Web search agent: no sequences returned")
     return result
 
 

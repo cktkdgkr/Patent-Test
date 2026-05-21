@@ -204,6 +204,34 @@ Permanent setup as above.
 
 Registration: https://www.epo.org/searching-for-patents/data/web-services/ops.html
 
+#### Claude web-search agent (final fallback)
+
+When every deterministic fetcher (cache, KIPRIS, EPO OPS, WIPO, USPTO,
+NCBI, Google Patents page links) has come up empty for a given SEQ ID
+NO, the workflow can hand the search off to a Claude agent that uses
+the Anthropic-hosted ``web_search`` and ``web_fetch`` tools to navigate
+arbitrary public sources the way a human researcher would.
+
+Activated when ``ANTHROPIC_API_KEY`` is set (the same key the LLM claim
+extractor already uses). Without it the agent skips silently and the
+chain ends naturally.
+
+```powershell
+$env:ANTHROPIC_API_KEY = "sk-ant-api03-your-key-here"
+```
+
+Each agent call costs Anthropic API tokens (~$0.10 with adaptive
+thinking on Opus 4.7) plus web-tool credits (~$0.01-0.05 per patent
+depending on how many sources are visited). Sequences returned by the
+agent are cached the same way deterministic fetchers cache, so the same
+patent does not re-call the agent on subsequent runs.
+
+The agent applies a sanity gate on its own output: rejects sequences
+shorter than 10 residues, rejects sequences where more than 20% of the
+letters are outside the standard 20 amino-acid alphabet, and requires
+a source URL for every reported sequence. Hallucinated or fabricated
+sequences are filtered out before they reach the comparison stage.
+
 #### How they fit in the chain
 
 When `웹 조회` (`enable_web_fetch`) is on and a claim references a SEQ ID
@@ -217,6 +245,7 @@ in this order:
 5. USPTO PSIPS (US)
 6. NCBI Protein
 7. Google Patents page links
+8. Claude web-search agent  (skips if `ANTHROPIC_API_KEY` unset)
 
 The first source that returns a usable sequence wins. Missing credentials
 do not break the chain — those fetchers short-circuit and the next one
